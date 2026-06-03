@@ -1,0 +1,82 @@
+{
+  "ac": {
+    "ac_nrmse_db": 0.25377919976783714,
+    "ac_rmse_db": 54.795395831823114,
+    "attenuation_high_probe_db_rel_mid": -2.4233124905099186,
+    "attenuation_low_probe_db_rel_mid": -42.93544885312129,
+    "lower_3db_hz": 51.10710237028388,
+    "midband_gain_db": 2.690104635098572,
+    "midband_gain_vv": 1.3630294259259264,
+    "passband_ripple_db": 10.40028994998182,
+    "upper_3db_hz": 223850.01773423617
+  },
+  "area_power": {
+    "area_total_p": 409.65,
+    "device_rows": [
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CIN",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 1.0,
+        "area_p_total": 6.0,
+        "area_source": "devices_csv",
+        "count": 6.0,
+        "effective_count": 6.0,
+        "included": true,
+        "name": "Q1",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CE",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "COUT",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      }
+    ],
+    "power_dc_w": 0.0,
+    "power_dynamic_w": 0.0007950733754499983,
+    "power_score_basis_w": 0.0007950733754499983,
+    "static_current_a": 0.0
+  },
+  "design_name": "seed_0_7f3a9c2e_trial_2",
+  "performance_nrmse_combined": 0.6346750406826629,
+  "tran": {
+    "fft_fundamental_hz": 1000.0,
+    "thd_db": -36.95514213750529,
+    "thd_ratio_h2_to_h5": 0.014198513971225688,
+    "tran_ac_nrmse_vs_target_filter": 1.0155708815974887,
+    "tran_ac_rmse_v": 0.07180201393949816,
+    "tran_nrmse_vs_target_filter": 1.0155708815974887,
+    "tran_rmse_v": 0.07180201393949816,
+    "vin_dc_removed_v": 2.499999504121767,
+    "vout_ac_peak_to_peak_v": 0.003139000000000003,
+    "vout_dc_removed_v": 1.8375486900362032,
+    "vout_mean_v": 1.8375486900362032,
+    "vout_peak_to_peak_v": 0.003139000000000003
+  }
+}

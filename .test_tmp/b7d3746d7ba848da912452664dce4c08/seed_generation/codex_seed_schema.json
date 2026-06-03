@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "seeds": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "device_manifest": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "initial_params": {
+            "type": "object"
+          },
+          "netlist_template": {
+            "type": "string"
+          },
+          "param_ranges": {
+            "type": "object"
+          },
+          "pins": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 5,
+            "type": "array"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "seed_id": {
+            "type": "string"
+          },
+          "subckt_name": {
+            "type": "string"
+          },
+          "topology_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seed_id",
+          "topology_name",
+          "subckt_name",
+          "pins",
+          "netlist_template",
+          "param_ranges",
+          "initial_params",
+          "device_manifest"
+        ],
+        "type": "object"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "seeds"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,31 @@
+design: veriloga_dummy_neural_amp
+
+[Area / Power]
+area_total_p: 1670.2
+static_current_a: 0.0007 A
+power_dc_w: 0.0035 W
+power_dynamic_w: 0.000168241 W
+power_score_basis_w: 0.0035 W
+
+[AC Performance]
+ac_nrmse_db: 0.139296
+ac_rmse_db: 30.0765 dB
+midband_gain_vv: 98.291 V/V
+midband_gain_db: 39.8503 dB
+lower_3db_hz: 9.74158 Hz
+upper_3db_hz: 17653.6 Hz
+passband_ripple_db: 1.25097 dB
+attenuation_low_probe_db_rel_mid: -49.6317 dB
+attenuation_high_probe_db_rel_mid: -33.6946 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 0.0588201
+tran_ac_rmse_v: 0.00415865 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 2.50003 V
+vout_ac_peak_to_peak_v: 0.20225 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.00221173
+thd_db: -53.1054 dB
+
+performance_nrmse_combined: 0.0990581

@@ -1,0 +1,20 @@
+simulator lang=spectre
+subckt bjt2stage_buf_bp VIN VREF VDD GND VOUT
+CIN VIN B1 sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=2.2e-07
+RB1 B1 VREF sky130_fd_pr__res_high_po_5p73 r=68000.0 l=5.73e-6 w=3.5e-7
+Q1 N1 B1 E1 GND sky130_fd_pr__npn_05v5 m=2
+RC1 VDD N1 sky130_fd_pr__res_high_po_5p73 r=10000.0 l=5.73e-6 w=3.5e-7
+RE1 E1 GND sky130_fd_pr__res_high_po_5p73 r=8200.0 l=5.73e-6 w=3.5e-7
+CE1 E1 GND sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=2.2e-06
+C12 N1 B2 sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=2.2e-07
+RB2 B2 VREF sky130_fd_pr__res_high_po_5p73 r=68000.0 l=5.73e-6 w=3.5e-7
+Q2 N2 B2 E2 GND sky130_fd_pr__npn_05v5 m=2
+RC2 VDD N2 sky130_fd_pr__res_high_po_5p73 r=8200.0 l=5.73e-6 w=3.5e-7
+RE2 E2 GND sky130_fd_pr__res_high_po_5p73 r=8200.0 l=5.73e-6 w=3.5e-7
+CE2 E2 GND sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=1e-06
+CDOM N2 B2 sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=1e-11
+QBUF VDD N2 VOUT GND sky130_fd_pr__npn_05v5 m=4
+ROUT VOUT GND sky130_fd_pr__res_high_po_5p73 r=12000.0 l=5.73e-6 w=3.5e-7
+COUT VOUT GND sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=1e-10
+ends bjt2stage_buf_bp
+

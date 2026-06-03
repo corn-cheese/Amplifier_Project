@@ -1,0 +1,7 @@
+simulator lang=spectre
+subckt bjt_amp VIN VREF VDD GND VOUT
+Q1 VOUT VIN GND GND sky130_fd_pr__npn_05v5 m=3
+R1 VDD VOUT sky130_fd_pr__res_high_po_5p73 r=25000.0
+C1 VOUT GND sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield c=2e-11
+ends bjt_amp
+

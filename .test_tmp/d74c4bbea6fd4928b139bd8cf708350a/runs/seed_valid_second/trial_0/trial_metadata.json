@@ -1,0 +1,14 @@
+{
+  "backend": "mock",
+  "command": "python3 ppa_wrapper.py all --config ./config.json",
+  "params": {
+    "c_load": 1e-11,
+    "q_mult": 2,
+    "r_bias": 10000.0
+  },
+  "params_hash": "024445a13e50b57c",
+  "render_hash": "f4ddcb2350b7c867",
+  "seed_id": "seed_valid_second",
+  "timestamp_utc": "2026-06-03T16:20:53.805735Z",
+  "trial_id": "trial_0"
+}

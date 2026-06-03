@@ -1,0 +1,37 @@
+design: seed_0_7f3a9c2e_trial_2
+
+[Area / Power]
+area_total_p: 409.65
+static_current_a: 0 A
+power_dc_w: 0 W
+power_dynamic_w: 0.000795073 W
+power_score_basis_w: 0.000795073 W
+
+[Area Breakdown]
+CIN: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+Q1: type=npn, source=devices_csv, count=6, netlist_m=1, area_each_p=1, area_total_p=6
+CE: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+COUT: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+
+[AC Performance]
+ac_nrmse_db: 0.253779
+ac_rmse_db: 54.7954 dB
+midband_gain_vv: 1.36303 V/V
+midband_gain_db: 2.6901 dB
+lower_3db_hz: 51.1071 Hz
+upper_3db_hz: 223850 Hz
+passband_ripple_db: 10.4003 dB
+attenuation_low_probe_db_rel_mid: -42.9354 dB
+attenuation_high_probe_db_rel_mid: -2.42331 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 1.01557
+tran_ac_rmse_v: 0.071802 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 1.83755 V
+vout_ac_peak_to_peak_v: 0.003139 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.0141985
+thd_db: -36.9551 dB
+
+performance_nrmse_combined: 0.634675

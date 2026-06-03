@@ -1,0 +1,127 @@
+{
+  "seeds": [
+    {
+      "device_manifest": [
+        {
+          "cell": "sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield",
+          "include_in_ppa": true,
+          "length": "11.7u",
+          "multiplier": 1,
+          "name": "CIN",
+          "type": "capacitor",
+          "width": "11.5u"
+        },
+        {
+          "cell": "sky130_fd_pr__res_high_po_5p73",
+          "include_in_ppa": true,
+          "name": "RB",
+          "seg_length": "5.73u",
+          "seg_width": "0.35u",
+          "segments": 150,
+          "type": "resistor"
+        },
+        {
+          "cell": "sky130_fd_pr__npn_05v5",
+          "count": "q_mult",
+          "include_in_ppa": true,
+          "name": "Q1",
+          "type": "npn"
+        },
+        {
+          "cell": "sky130_fd_pr__res_high_po_5p73",
+          "include_in_ppa": true,
+          "name": "RC",
+          "seg_length": "5.73u",
+          "seg_width": "0.35u",
+          "segments": 33,
+          "type": "resistor"
+        },
+        {
+          "cell": "sky130_fd_pr__res_high_po_5p73",
+          "include_in_ppa": true,
+          "name": "RE",
+          "seg_length": "5.73u",
+          "seg_width": "0.35u",
+          "segments": 22,
+          "type": "resistor"
+        },
+        {
+          "cell": "sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield",
+          "include_in_ppa": true,
+          "length": "11.7u",
+          "multiplier": 1,
+          "name": "CE",
+          "type": "capacitor",
+          "width": "11.5u"
+        },
+        {
+          "cell": "sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield",
+          "include_in_ppa": true,
+          "length": "11.7u",
+          "multiplier": 1,
+          "name": "COUT",
+          "type": "capacitor",
+          "width": "11.5u"
+        }
+      ],
+      "initial_params": {
+        "c_emit": 0.0001,
+        "c_in": 4.7e-06,
+        "c_out": 2.2e-09,
+        "q_mult": 2,
+        "r_bias": 15000.0,
+        "r_col": 3300.0,
+        "r_emit": 2200.0
+      },
+      "netlist_template": "simulator lang=spectre\nsubckt bjt_ac_ce VIN VREF VDD GND VOUT\nCIN (VIN NB) capacitor c={c_in}\nRB (NB VREF) resistor r={r_bias}\nXQ1 (VOUT NB NE GND) npn_05v5_W1p00L1p00 mult={q_mult}\nRC (VDD VOUT) resistor r={r_col}\nRE (NE GND) resistor r={r_emit}\nCE (NE GND) capacitor c={c_emit}\nCOUT (VOUT GND) capacitor c={c_out}\nends bjt_ac_ce\n",
+      "param_ranges": {
+        "c_emit": {
+          "high": 0.001,
+          "low": 1e-07,
+          "type": "log_float"
+        },
+        "c_in": {
+          "high": 2e-05,
+          "low": 1e-08,
+          "type": "log_float"
+        },
+        "c_out": {
+          "high": 2e-08,
+          "low": 2e-10,
+          "type": "log_float"
+        },
+        "q_mult": {
+          "high": 6,
+          "low": 1,
+          "type": "int"
+        },
+        "r_bias": {
+          "high": 100000.0,
+          "low": 3000.0,
+          "type": "log_float"
+        },
+        "r_col": {
+          "high": 20000.0,
+          "low": 1000.0,
+          "type": "log_float"
+        },
+        "r_emit": {
+          "high": 10000.0,
+          "low": 800.0,
+          "type": "log_float"
+        }
+      },
+      "pins": [
+        "VIN",
+        "VREF",
+        "VDD",
+        "GND",
+        "VOUT"
+      ],
+      "rationale": "AC-coupled NPN common-emitter stage biased from VREF. The emitter resistor gives a stable operating point, the emitter capacitor increases midband gain, and the output capacitor places a simple high-frequency pole.",
+      "seed_id": "seed_0_7f3a9c2e",
+      "subckt_name": "bjt_ac_ce",
+      "topology_name": "bjt_ac_coupled_common_emitter"
+    }
+  ]
+}

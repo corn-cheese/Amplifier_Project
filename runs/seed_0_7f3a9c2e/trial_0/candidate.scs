@@ -1,0 +1,11 @@
+simulator lang=spectre
+subckt bjt_ac_ce VIN VREF VDD GND VOUT
+CIN (VIN NB) capacitor c=4.7e-06
+RB (NB VREF) resistor r=15000.0
+XQ1 (VOUT NB NE GND) npn_05v5_W1p00L1p00 mult=2
+RC (VDD VOUT) resistor r=3300.0
+RE (NE GND) resistor r=2200.0
+CE (NE GND) capacitor c=0.0001
+COUT (VOUT GND) capacitor c=2.2e-09
+ends bjt_ac_ce
+

@@ -1,0 +1,18 @@
+{
+  "backend": "eda_ssh",
+  "command": "python3 ppa_wrapper.py all --config ./config.json",
+  "params": {
+    "c_emit": 0.00044554751796325716,
+    "c_in": 9.01431810035631e-06,
+    "c_out": 2.339528258300166e-09,
+    "q_mult": 3,
+    "r_bias": 28187.662434014277,
+    "r_col": 15976.990874857644,
+    "r_emit": 1810.225989255422
+  },
+  "params_hash": "22aa96e0af0d0377",
+  "render_hash": "50048d1e8b348fda",
+  "seed_id": "seed_0_7f3a9c2e",
+  "timestamp_utc": "2026-06-03T17:07:25.480668Z",
+  "trial_id": "trial_3"
+}

@@ -1,0 +1,36 @@
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Wed Jun  3 05:40:01 2026"
+"psfversion" ""
+"simulator" "spectre"
+"version" "19.1.0.162.isr1"
+"date" "5:40:01 AM, Wed Jun 3, 2026"
+"design" "(no title)"
+"signalNameType" "spectre"
+"simMode" "Spectre"
+"measdgt" 0
+"ingold" 2
+"sst2usecolon" 0
+TYPE
+"analysisInst" STRUCT(
+"analysisType" STRING *
+"dataFile" STRING *
+"format" STRING *
+"parent" STRING *
+"sweepVariable" ARRAY ( * ) STRING *
+"description" STRING *
+)
+VALUE
+"tran-tran" "analysisInst" (
+"tran"
+"tran.tran.tran"
+"PSF"
+""
+("time")
+"Transient Analysis `tran': time = (0 s -> 20 ms)"
+) PROP(
+"data_type" "swept_scalar"
+)
+
+END

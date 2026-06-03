@@ -1,0 +1,36 @@
+HEADER
+"PSFversion" "1.00"
+"Log Generator" "drlLog rev. 1.0"
+"Log Time Stamp" "Wed Jun  3 05:39:59 2026"
+"psfversion" ""
+"simulator" "spectre"
+"version" "19.1.0.162.isr1"
+"date" "5:39:59 AM, Wed Jun 3, 2026"
+"design" "(no title)"
+"signalNameType" "spectre"
+"simMode" "Spectre"
+"measdgt" 0
+"ingold" 2
+"sst2usecolon" 0
+TYPE
+"analysisInst" STRUCT(
+"analysisType" STRING *
+"dataFile" STRING *
+"format" STRING *
+"parent" STRING *
+"sweepVariable" ARRAY ( * ) STRING *
+"description" STRING *
+)
+VALUE
+"ac-ac" "analysisInst" (
+"ac"
+"ac.ac"
+"PSF"
+""
+("freq")
+"AC Analysis `ac': freq = (100 mHz -> 10 MHz)"
+) PROP(
+"data_type" "swept_scalar"
+)
+
+END

@@ -1,0 +1,16 @@
+simulator lang=spectre
+subckt bjt_diff_mirror_buf_bp VIN VREF VDD GND VOUT
+CIN (VIN BIN) capacitor c=2.2e-07
+RBIN (BIN VREF) resistor r=68000.0
+RREF (BREF VREF) resistor r=68000.0
+XQINP (NLEFT BIN TAIL GND) npn_05v5_W1p00L1p00 mult=2
+XQINN (NRIGHT BREF TAIL GND) npn_05v5_W1p00L1p00 mult=2
+RTAIL (TAIL GND) resistor r=6800.0
+XQPL (NLEFT NLEFT VDD VDD) sky130_fd_pr__pnp_05v5_W0p68L0p68 mult=2
+XQPR (NRIGHT NLEFT VDD VDD) sky130_fd_pr__pnp_05v5_W0p68L0p68 mult=2
+RDC (NRIGHT VREF) resistor r=1000000.0
+CDOM (NRIGHT BIN) capacitor c=1.5e-11
+XQBUF (VDD NRIGHT VOUT GND) npn_05v5_W1p00L1p00 mult=4
+ROUT (VOUT GND) resistor r=12000.0
+COUT (VOUT GND) capacitor c=8e-11
+ends bjt_diff_mirror_buf_bp

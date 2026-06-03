@@ -1,0 +1,137 @@
+{
+  "ac": {
+    "ac_nrmse_db": 0.30074600223474274,
+    "ac_rmse_db": 64.93635511644334,
+    "attenuation_high_probe_db_rel_mid": 3.3123554587658575,
+    "attenuation_low_probe_db_rel_mid": -87.38101634435554,
+    "lower_3db_hz": 216.0599548582535,
+    "midband_gain_db": 33.84237276813396,
+    "midband_gain_vv": 49.217396695555536,
+    "passband_ripple_db": 39.592940507149635,
+    "upper_3db_hz": 664423.2856944306
+  },
+  "area_power": {
+    "area_total_p": 814.2247999999998,
+    "device_rows": [
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CIN",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 1.0,
+        "area_p_total": 2.0,
+        "area_source": "devices_csv",
+        "count": 2.0,
+        "effective_count": 2.0,
+        "included": true,
+        "name": "Q1",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CE1",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "C12",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 0.4624,
+        "area_p_total": 0.9248,
+        "area_source": "devices_csv",
+        "count": 2.0,
+        "effective_count": 2.0,
+        "included": true,
+        "name": "Q2",
+        "netlist_m": 1.0,
+        "type": "pnp"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CE2",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "CDOM",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 1.0,
+        "area_p_total": 4.0,
+        "area_source": "devices_csv",
+        "count": 4.0,
+        "effective_count": 4.0,
+        "included": true,
+        "name": "QBUF",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 134.54999999999998,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "COUT",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      }
+    ],
+    "power_dc_w": 0.0,
+    "power_dynamic_w": 0.0013179554874750044,
+    "power_score_basis_w": 0.0013179554874750044,
+    "static_current_a": 0.0
+  },
+  "design_name": "seed_2_c73e5b19_fixed_trial_0",
+  "performance_nrmse_combined": 0.3925988045543095,
+  "tran": {
+    "fft_fundamental_hz": 1000.0,
+    "thd_db": -53.6102889496841,
+    "thd_ratio_h2_to_h5": 0.002086822701343337,
+    "tran_ac_nrmse_vs_target_filter": 0.48445160687387634,
+    "tran_ac_rmse_v": 0.034251278428793,
+    "tran_nrmse_vs_target_filter": 0.48445160687387634,
+    "tran_rmse_v": 0.034251278428793,
+    "vin_dc_removed_v": 2.499999504121767,
+    "vout_ac_peak_to_peak_v": 0.15272640354090353,
+    "vout_dc_removed_v": 0.2917245329601767,
+    "vout_mean_v": 0.2917245329601767,
+    "vout_peak_to_peak_v": 0.15272640354090353
+  }
+}

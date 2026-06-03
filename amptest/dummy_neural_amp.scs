@@ -1,0 +1,5 @@
+simulator lang=spectre
+ahdl_include "dummy_neural_amp.va"
+
+subckt dummy_neural_amp GND VDD VIN VOUT VREF
+ends dummy_neural_amp

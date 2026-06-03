@@ -1,0 +1,4 @@
+design: veriloga_dummy_neural_amp
+area_total_p: 1670.2
+power_score_basis_w: 0.0035
+performance_nrmse_combined: 0.0990581

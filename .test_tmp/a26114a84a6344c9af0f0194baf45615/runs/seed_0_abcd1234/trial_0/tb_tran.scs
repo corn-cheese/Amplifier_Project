@@ -1,0 +1,11 @@
+simulator lang=spectre
+include "/home/eda/edk_cadence/sky130_release_0.1.0/models/sky130.lib.spice" section=tt
+include "/home/me15/amptest/dummy_neural_amp.scs"
+VDD (VDD 0) vsource dc=5.0
+VIN (VIN 0) vsource type=sine dc=2.5 ampl=0.001 freq=1000.0
+VREF (VREF 0) vsource dc=2.5
+XDUT (0 VDD VIN VOUT VREF) bjt2_ver2_j
+CLOAD (VOUT 0) capacitor c=1e-11
+save VIN VOUT VDD:p
+tran tran stop=0.02 maxstep=1e-06 strobeperiod=2e-06
+simulatorOptions options rawfmt=psfxl

@@ -1,0 +1,42 @@
+design: seed_2_c73e5b19_fixed_trial_0
+
+[Area / Power]
+area_total_p: 814.225
+static_current_a: 0 A
+power_dc_w: 0 W
+power_dynamic_w: 0.00131796 W
+power_score_basis_w: 0.00131796 W
+
+[Area Breakdown]
+CIN: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+Q1: type=npn, source=devices_csv, count=2, netlist_m=1, area_each_p=1, area_total_p=2
+CE1: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+C12: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+Q2: type=pnp, source=devices_csv, count=2, netlist_m=1, area_each_p=0.4624, area_total_p=0.9248
+CE2: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+CDOM: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+QBUF: type=npn, source=devices_csv, count=4, netlist_m=1, area_each_p=1, area_total_p=4
+COUT: type=capacitor, source=devices_csv, count=1, netlist_m=1, area_each_p=134.55, area_total_p=134.55
+
+[AC Performance]
+ac_nrmse_db: 0.300746
+ac_rmse_db: 64.9364 dB
+midband_gain_vv: 49.2174 V/V
+midband_gain_db: 33.8424 dB
+lower_3db_hz: 216.06 Hz
+upper_3db_hz: 664423 Hz
+passband_ripple_db: 39.5929 dB
+attenuation_low_probe_db_rel_mid: -87.381 dB
+attenuation_high_probe_db_rel_mid: 3.31236 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 0.484452
+tran_ac_rmse_v: 0.0342513 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 0.291725 V
+vout_ac_peak_to_peak_v: 0.152726 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.00208682
+thd_db: -53.6103 dB
+
+performance_nrmse_combined: 0.392599

@@ -1,0 +1,150 @@
+ahdlcmicompile: Compiling ahdlcmi in tb_tran.ahdlSimDB//bsource_ceb90a.va.bsource_ceb90a.ahdlcmi/Linux-64/ for Linux-64 with optimize using gcc on Wed Jun  3 04:07:52 EDT 2026 [5.0]
+ahdlcmicompile: Generating makefile
+PATH:  /home/eda/cadence/spectre191/bin:/home/eda/cadence/spectre191/tools.lnx86/bin/64bit:/home/eda/cadence/spectre191/tools.lnx86/bin:/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/home/eda/script:/home/eda/cadence/xcelium1903/tools.lnx86/bin:/home/eda/cadence/xcelium1903/tools/bin:/home/eda/cadence/xcelium1903/bin:/home/eda/cadence/innovus191/bin:/home/eda/cadence/innovus191/tools/bin:/home/eda/cadence/innovus191/tools.lnx86/bin:/home/eda/cadence/spectre191/tools/bin:/home/eda/cadence/ic618/tools/dfII/bin:/home/eda/cadence/ic618/tools/bin:/home/eda/cadence/ic618/bin:/home/eda/siemens/calibre/aoj_cal_2021.2_28.15/bin:/home/eda/synopsys/scl/2023.03-SP1/linux64/bin:/home/eda/synopsys/fusioncompiler/U-2022.12-SP1/bin:/home/eda/synopsys/icvalidator/V-2023.12/bin:/home/eda/synopsys/prime/W-2024.09-SP2/bin:/home/eda/synopsys/vcs/V-2023.12-SP2-6/bin:/home/eda/synopsys/verdi/V-2023.12-SP2-6/bin:/home/eda/synopsys/syn/W-2024.09-SP3/bin:/home/eda/synopsys/spyglass/Q-2020.03-SP2-3/SPYGLASS_HOME/bin:/home/eda/synopsys/starrc/W-2024.09-SP4/amd64_starrc/bin:/home/eda/synopsys/hspice/W-2024.09-SP2/hspice/bin:/home/eda/synopsys/icc2/W-2024.09-SP2/bin:/home/eda/Xilinx/Vivado/2024.2/bin:/home/me15/.local/bin:/home/me15/bin
+LD_LIBRARY_PATH:  /home/eda/cadence/spectre191/tools.lnx86/giganta/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/mdl/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/mmsim/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/tcltk-8.4.20/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/inca/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/spectre/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/dfII/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/lib/64bit:/home/eda/cadence/spectre191/tools.lnx86/lib:/home/eda/cadence/spectre191/tools.lnx86/lib/64bit/RHEL/RHEL7:/usr/lib64:/home/eda/cadence/spectre191/tools/lib:/home/eda/cadence/ic618/tools/dfII/lib/64bit:/home/eda/cadence/ic618/tools/lib/64bit
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/gnumake -j80 -f GNUmakefile
+ERROR: ld.so: object '/usr/lib64/libssl.so.1.0.2k' from LD_PRELOAD cannot be preloaded: ignored.
+ERROR: ld.so: object '/usr/lib64/libcrypto.so.1.0.2k' from LD_PRELOAD cannot be preloaded: ignored.
+Cleaning ./obj/optimize/5.0
+rm -f -rf ./obj/optimize/5.0
+ERROR: ld.so: object '/usr/lib64/libssl.so.1.0.2k' from LD_PRELOAD cannot be preloaded: ignored.
+ERROR: ld.so: object '/usr/lib64/libcrypto.so.1.0.2k' from LD_PRELOAD cannot be preloaded: ignored.
+Compiling C file bsource_ceb90a_ufunc.c (optimize)
+Compiling C file bsource_ceb90a_DcFuncDerLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_DcFuncDerLoad.c -o obj/optimize/5.0/bsource_ceb90a_DcFuncDerLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_DcFuncDerLoad.o
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_ufunc.c -o obj/optimize/5.0/bsource_ceb90a_ufunc.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_ufunc.o
+Compiling C file bsource_ceb90a_func.c (optimize)
+Compiling C file bsource_ceb90a_TranFuncDerLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_func.c -o obj/optimize/5.0/bsource_ceb90a_func.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_func.o
+Compiling C file bsource_ceb90a_DcFuncLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_TranFuncDerLoad.c -o obj/optimize/5.0/bsource_ceb90a_TranFuncDerLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_TranFuncDerLoad.o
+Compiling C file bsource_ceb90a_TranFuncDerSimLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_DcFuncLoad.c -o obj/optimize/5.0/bsource_ceb90a_DcFuncLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_DcFuncLoad.o
+Compiling C file bsource_ceb90a_OpPointCalc.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_OpPointCalc.c -o obj/optimize/5.0/bsource_ceb90a_OpPointCalc.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_OpPointCalc.o
+Compiling C file bsource_ceb90a_TranFuncLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_TranFuncDerSimLoad.c -o obj/optimize/5.0/bsource_ceb90a_TranFuncDerSimLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_TranFuncDerSimLoad.o
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_TranFuncLoad.c -o obj/optimize/5.0/bsource_ceb90a_TranFuncLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_TranFuncLoad.o
+Compiling C file bsource_ceb90a_TranFuncSimLoad.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -c bsource_ceb90a_TranFuncSimLoad.c -o obj/optimize/5.0/bsource_ceb90a_TranFuncSimLoad.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_TranFuncSimLoad.o
+Compiling C file bsource_ceb90a_cmi_c.c (optimize)
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/bin/64bit/ahdlcc 0 /home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc  -march=k8 -ffast-math  -fno-unsafe-math-optimizations -O3 -m64 -DSYSV -DSVR4 -D_REENTRANT -fPIC   -DconfigSPECTRE -I. -I/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include -I/home/eda/cadence/spectre191/tools.lnx86/cmi/include -c bsource_ceb90a_cmi_c.c -o obj/optimize/5.0/bsource_ceb90a_cmi_c.o || rm -f -f obj/optimize/5.0/bsource_ceb90a_cmi_c.o
+<stdin>: In function 'bsource_ceb90a_TranFuncDerSimLoad':
+<stdin>:145:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:149:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_TranFuncDerLoad':
+<stdin>:151:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:155:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_TranFuncSimLoad':
+<stdin>:123:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:126:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_OpPointCalc':
+<stdin>:164:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:168:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_TranFuncLoad':
+<stdin>:127:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:130:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_DcFuncDerLoad':
+<stdin>:151:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:155:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_DcFuncLoad':
+<stdin>:127:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:130:64: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_00' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:8: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_pGetInstanceParams':
+<stdin>:688:1402: warning: implicit declaration of function 'devGetInstKnotStatus' [-Wimplicit-function-declaration]
+<stdin>: In function 'bsource_ceb90a_pDC_Load':
+<stdin>:705:2986: warning: passing argument 1 of 'aslDevFillZeorDiagonalElemet' makes pointer from integer without a cast [-Wint-conversion]
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:2691:33: note: expected 'void *' but argument is of type 'long int'
+ ASL_FUNC_DECL_START extern void aslDevFillZeorDiagonalElemet( void *, int, unsigned int, struct ahdlFuncModeParam * );
+                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+<stdin>: In function 'bsource_ceb90a_AcLoad':
+<stdin>:144:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>:148:68: warning: passing argument 2 of 'bsource_ceb90a_userFn_hsp_pow_der_10' from incompatible pointer type [-Wincompatible-pointer-types]
+<stdin>:91:196: note: expected 'struct bsource_ceb90aInstData *' but argument is of type 'char *'
+<stdin>: In function 'bsource_ceb90a_pCompare':
+<stdin>:744:1302: warning: assignment makes integer from pointer without a cast [-Wint-conversion]
+<stdin>:744:1382: warning: passing argument 1 of 'memcpy' makes pointer from integer without a cast [-Wint-conversion]
+In file included from /home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlPiCmi.h:5:0,
+                 from /home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:83,
+                 from <stdin>:24:
+/usr/include/string.h:42:14: note: expected 'void * restrict' but argument is of type 'long int'
+ extern void *memcpy (void *__restrict __dest, const void *__restrict __src,
+              ^~~~~~
+<stdin>:744:1417: warning: passing argument 2 of 'memcpy' makes pointer from integer without a cast [-Wint-conversion]
+In file included from /home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlPiCmi.h:5:0,
+                 from /home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:83,
+                 from <stdin>:24:
+/usr/include/string.h:42:14: note: expected 'const void * restrict' but argument is of type 'long int'
+ extern void *memcpy (void *__restrict __dest, const void *__restrict __src,
+              ^~~~~~
+<stdin>:744:1544: warning: assignment makes integer from pointer without a cast [-Wint-conversion]
+<stdin>: In function 'bsource_ceb90a_pGetMatrixPointers':
+<stdin>:750:2810: warning: assignment makes integer from pointer without a cast [-Wint-conversion]
+<stdin>: In function 'bsource_ceb90a_pAnalTranLoad':
+<stdin>:786:0: warning: passing argument 1 of 'aslDevFillZeorDiagonalElemet' makes pointer from integer without a cast [-Wint-conversion]
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:2691:33: note: expected 'void *' but argument is of type 'long int'
+ ASL_FUNC_DECL_START extern void aslDevFillZeorDiagonalElemet( void *, int, unsigned int, struct ahdlFuncModeParam * );
+                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+<stdin>: In function 'bsource_ceb90a_pNoiseBindSrcs':
+<stdin>:812:1483: warning: passing argument 3 of 'aslDevNoiseBindStartModel' discards 'const' qualifier from pointer target type [-Wdiscarded-qualifiers]
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:1093:33: note: expected 'char *' but argument is of type 'devModelID {aka const char *}'
+ ASL_FUNC_DECL_START extern void aslDevNoiseBindStartModel( struct noiseData *, devInstKnot *, char *, char * );
+                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+<stdin>: In function 'bsource_ceb90a_pNoiseNameSrcs':
+<stdin>:815:1478: warning: passing argument 3 of 'aslDevNoiseNameModel' discards 'const' qualifier from pointer target type [-Wdiscarded-qualifiers]
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:1101:40: note: expected 'char *' but argument is of type 'devModelID {aka const char *}'
+ ASL_FUNC_DECL_START extern msgSeverity aslDevNoiseNameModel( struct noiseData *, devInstKnot *, char *, char * );
+                                        ^~~~~~~~~~~~~~~~~~~~
+<stdin>: In function 'bsource_ceb90a_pSaveRestart':
+<stdin>:821:1961: warning: implicit declaration of function 'pklAccessDouble' [-Wimplicit-function-declaration]
+<stdin>:821:2040: warning: passing argument 2 of 'aslDevAvarSR' from incompatible pointer type [-Wincompatible-pointer-types]
+rm -f -rf bsource_ceb90a_OpPointCalc.c
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:1218:39: note: expected 'struct ahdlAnalogVar *' but argument is of type 'char *'
+ ASL_FUNC_DECL_START extern PklError_e aslDevAvarSR( int, struct ahdlAnalogVar *, char *, char *, char *, PklJar_t * );
+                                       ^~~~~~~~~~~~
+<stdin>: In function 'bsource_ceb90a_pSaveRestartInst':
+<stdin>:824:1956: warning: passing argument 2 of 'aslDevAvarSR' from incompatible pointer type [-Wincompatible-pointer-types]
+In file included from <stdin>:24:0:
+/home/eda/cadence/spectre191/tools.lnx86/spectre/ahdlcmi/include/ahdlDevLibGlobal.h:1218:39: note: expected 'struct ahdlAnalogVar *' but argument is of type 'char *'
+ ASL_FUNC_DECL_START extern PklError_e aslDevAvarSR( int, struct ahdlAnalogVar *, char *, char *, char *, PklJar_t * );
+                                       ^~~~~~~~~~~~
+<stdin>: In function 'ahdlbsource_ceb90aDescInstall':
+<stdin>:860:1867: warning: implicit declaration of function 'descSetDeviceType' [-Wimplicit-function-declaration]
+<stdin>:860:1995: warning: implicit declaration of function 'descSetSetContrInfoPtr' [-Wimplicit-function-declaration]
+<stdin>:860:2390: warning: implicit declaration of function 'descSetCopySignals' [-Wimplicit-function-declaration]
+<stdin>:860:3344: warning: implicit declaration of function 'descSetPreload' [-Wimplicit-function-declaration]
+<stdin>:860:3723: warning: implicit declaration of function 'descSetNoiseLoadFreqDep' [-Wimplicit-function-declaration]
+<stdin>:860:3857: warning: implicit declaration of function 'descSetNoiseBindSrcs' [-Wimplicit-function-declaration]
+<stdin>:860:3918: warning: implicit declaration of function 'descSetNoiseNameSrcs' [-Wimplicit-function-declaration]
+<stdin>:860:0: warning: implicit declaration of function 'descSetGetNodeNamesForBranch' [-Wimplicit-function-declaration]
+rm -f -rf bsource_ceb90a_TranFuncLoad.c
+rm -f -rf bsource_ceb90a_ufunc.c
+rm -f -rf bsource_ceb90a_TranFuncDerLoad.c
+rm -f -rf bsource_ceb90a_TranFuncDerSimLoad.c
+rm -f -rf bsource_ceb90a_DcFuncDerLoad.c
+rm -f -rf bsource_ceb90a_TranFuncSimLoad.c
+rm -f -rf bsource_ceb90a_DcFuncLoad.c
+rm -f -rf bsource_ceb90a_func.c
+rm -f -rf bsource_ceb90a_cmi_c.c
+/home/eda/cadence/spectre191/tools.lnx86/cdsgcc/gcc/6.3/bin/gcc -shared -O3 -m64 -fPIC -o obj/optimize/5.0/libahdlcmi_bsource_ceb90a.so ./obj/optimize/5.0/bsource_ceb90a_ufunc.o ./obj/optimize/5.0/bsource_ceb90a_func.o ./obj/optimize/5.0/bsource_ceb90a_DcFuncDerLoad.o ./obj/optimize/5.0/bsource_ceb90a_DcFuncLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncDerLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncDerSimLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncSimLoad.o ./obj/optimize/5.0/bsource_ceb90a_OpPointCalc.o ./obj/optimize/5.0/bsource_ceb90a_cmi_c.o  -Wl,-rpath,/usr/lib -Wl,-rpath,/lib -s 
+rm -f -f ./obj/optimize/5.0/bsource_ceb90a_ufunc.o ./obj/optimize/5.0/bsource_ceb90a_func.o ./obj/optimize/5.0/bsource_ceb90a_DcFuncDerLoad.o ./obj/optimize/5.0/bsource_ceb90a_DcFuncLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncDerLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncDerSimLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncLoad.o ./obj/optimize/5.0/bsource_ceb90a_TranFuncSimLoad.o ./obj/optimize/5.0/bsource_ceb90a_OpPointCalc.o ./obj/optimize/5.0/bsource_ceb90a_cmi_c.o 

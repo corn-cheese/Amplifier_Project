@@ -1,0 +1,7 @@
+openResults("/home/me15/amptest/run/ac_psf")
+selectResult('ac)
+ocnPrint(?output "/home/me15/amptest/run/ac.csv" ?numberNotation 'scientific ?precision 12 v("VIN") v("VOUT"))
+openResults("/home/me15/amptest/run/tran_psf")
+selectResult('tran)
+ocnPrint(?output "/home/me15/amptest/run/tran.csv" ?numberNotation 'scientific ?precision 12 v("VIN") v("VOUT") getData("VDD:p"))
+exit()

@@ -1,0 +1,11 @@
+spectre terminated prematurely due to fatal error.
+Traceback (most recent call last):
+  File "/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/ppa_wrapper_core.py", line 1042, in <module>
+    main()
+  File "/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/ppa_wrapper_core.py", line 1037, in main
+    run_simulation(cfg)
+  File "/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/ppa_wrapper_core.py", line 179, in run_simulation
+    check=True,
+  File "/usr/lib64/python3.6/subprocess.py", line 438, in run
+    output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['spectre', '/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/tb_ac.scs', '+escchars', '+log', '/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/spectre_ac.log', '-format', 'psfxl', '-raw', '/home/me59/bjt_amp_langgraph/seed_2_c73e5b19/trial_0/ac_psf', '+lqtimeout', '60']' returned non-zero exit status 2.

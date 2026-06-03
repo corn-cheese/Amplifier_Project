@@ -1,0 +1,48 @@
+Generate 1 new seed topology JSON object for the BJT neural amplifier LangGraph workflow.
+
+Read these project files if present:
+- neural_signal_amplifier_project.md
+- amptest/config.json
+- amptest/README.md
+- LANGGRAPH_WORKFLOW_PLAN.md
+
+Return only JSON matching the supplied schema:
+{"seeds": [CircuitSeed, ...]}
+
+Hard requirements:
+- Use exactly these pins in this order: ["VIN", "VREF", "VDD", "GND", "VOUT"].
+- Do not use opamp, MOS/nfet/pfet, Verilog-A behavioral sources, ahdl_include, bsource, laplace, or controlled-source shortcuts.
+- Allowed active cells: sky130_fd_pr__npn_05v5, sky130_fd_pr__pnp_05v5.
+- Allowed passive cells: sky130_fd_pr__res_high_po_5p73, sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield, sky130_fd_pr__diode_pd2nw_05v5.
+- netlist_template must be a Spectre subckt template using Python format placeholders for every tunable parameter.
+- Keep approved SKY130 cell names in device_manifest.cell, but do not instantiate those manifest cell names directly in netlist_template.
+- In netlist_template use Spectre-simulatable names: resistor primitives as `R1 (N1 N2) resistor r={r}`, capacitor primitives as `C1 (N1 N2) capacitor c={c}`, NPN BJTs as `XQ1 (C B E S) npn_05v5_W1p00L1p00 mult={m}`, and PNP BJTs as `XQ2 (C B E S) sky130_fd_pr__pnp_05v5_W0p68L0p68 mult={m}`.
+- For BJT subcircuit instances, use an `X...` instance name in netlist_template and use the same name without the leading `X` in device_manifest.name, for example `XQ1` in the netlist and `"Q1"` in device_manifest.
+- Every template placeholder must exist in param_ranges and initial_params.
+- initial_params must be inside the declared ranges.
+- device_manifest must include every active BJT instance and every PPA-relevant passive instance.
+- Prefer a topology that could plausibly improve over the previous trial history.
+
+Existing workflow state summary:
+{
+  "best_result": null,
+  "existing_seed_ids": [],
+  "failure_reasons": [],
+  "interrupt": null,
+  "recent_trials": [],
+  "spec": {}
+}
+
+Previous validation feedback:
+{
+  "parse_errors": [],
+  "validation feedback": [
+    {
+      "errors": [
+        "forbidden token 'opamp' found in seed metadata"
+      ],
+      "index": 0,
+      "seed_id": "seed_0_abcd1234"
+    }
+  ]
+}

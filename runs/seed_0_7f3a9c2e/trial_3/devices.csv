@@ -1,0 +1,8 @@
+name,type,count,width,length,multiplier,segments,seg_length,seg_width,ft_hz,area_p,include_in_ppa
+CIN,capacitor,1,11.5u,11.7u,1,,,,,,true
+RB,resistor,1,,,,150,5.73u,0.35u,,,true
+Q1,npn,3,,,,,,,,,true
+RC,resistor,1,,,,33,5.73u,0.35u,,,true
+RE,resistor,1,,,,22,5.73u,0.35u,,,true
+CE,capacitor,1,11.5u,11.7u,1,,,,,,true
+COUT,capacitor,1,11.5u,11.7u,1,,,,,,true

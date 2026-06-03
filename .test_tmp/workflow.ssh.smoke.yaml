@@ -1,0 +1,26 @@
+backend: eda_ssh
+run_root: .test_tmp/ssh_smoke_runs_d0f1ad2d82c247dd9f51e1c5f1211914
+amptest_local_dir: amptest
+seed_file: workflow.ssh.seeds.json
+checkpoint_db: .test_tmp/ssh_smoke_checkpoints_d0f1ad2d82c247dd9f51e1c5f1211914.sqlite
+optuna_storage: sqlite:///C:/Users/maize/AppData/Local/Temp/amplifier_ssh_smoke_optuna_d0f1ad2d82c247dd9f51e1c5f1211914.sqlite3
+max_seeds: 3
+max_trials_per_seed: 1
+llm_seed_batch_size: 3
+parallelism: 1
+min_interval_s: 30
+remote_timeout_s: 1200
+daily_max_trials: 3
+objective_target: -1
+max_seed_repair_attempts: 0
+
+remote:
+  host: 163.180.160.78
+  user: me59
+  port: 22
+  base_dir: /home/me59/bjt_amp_langgraph
+  identity_file: C:/Users/maize/.ssh/eda_langgraph
+  python: python3
+  pre_command: set +u; source ~/.bashrc; set -u
+  command: python3 ppa_wrapper.py all --config ./config.json
+  strict_host_key_checking: accept-new

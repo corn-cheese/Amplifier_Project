@@ -1,0 +1,69 @@
+{
+  "ahdl_include_files": [],
+  "area": {
+    "resistor_source": "netlist"
+  },
+  "design_name": "seed_0_abcd1234_trial_0",
+  "dut_netlist": "candidate.scs",
+  "dut_pins_order": [
+    "VIN",
+    "VREF",
+    "VDD",
+    "GND",
+    "VOUT"
+  ],
+  "dut_subckt": "bjt_amp",
+  "include_files": [],
+  "input_files": {
+    "ac_csv": "ac.csv",
+    "devices_csv": "devices.csv",
+    "tran_csv": "tran.csv"
+  },
+  "library_sections": [
+    {
+      "path": "/home/eda/edk_cadence/sky130_release_0.1.0/models/sky130.lib.spice",
+      "section": "tt"
+    }
+  ],
+  "sim": {
+    "ac": {
+      "points_per_dec": 50,
+      "start_hz": 0.1,
+      "stop_hz": 10000000.0
+    },
+    "ocean_cmd": "ocean",
+    "run_ocean_export": true,
+    "run_spectre": true,
+    "spectre_args": [
+      "+lqtimeout",
+      "60"
+    ],
+    "spectre_cmd": "spectre",
+    "tran": {
+      "fft_fundamental_hz": 1000.0,
+      "input": {
+        "amplitude_v": 0.001,
+        "frequency_hz": 1000.0,
+        "kind": "sine"
+      },
+      "maxstep_s": 1e-06,
+      "settle_skip_s": 0.004,
+      "stop_s": 0.02,
+      "strobe_s": 2e-06
+    }
+  },
+  "spec": {
+    "attenuation_probe_high_hz": 200000.0,
+    "attenuation_probe_low_hz": 1.0,
+    "high_cut_hz": 20000.0,
+    "input_ac_amplitude": 0.001,
+    "load_cap_f": 1e-11,
+    "low_cut_hz": 10.0,
+    "midband_gain_vv": 100.0,
+    "rolloff_order_each_side": 4,
+    "vdd": 5.0,
+    "vindc_ratio": 0.5,
+    "vref_ratio": 0.5
+  },
+  "work_dir": "."
+}
