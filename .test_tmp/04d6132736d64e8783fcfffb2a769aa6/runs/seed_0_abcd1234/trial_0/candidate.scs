@@ -1,7 +1,0 @@
-simulator lang=spectre
-subckt bjt_amp VIN VREF VDD GND VOUT
-XQ1 (VOUT VIN GND GND) npn_05v5_W1p00L1p00 mult=2
-R1 (VDD VOUT) resistor r=10000.0
-C1 (VOUT GND) capacitor c=1e-11
-ends bjt_amp
-

@@ -27,12 +27,13 @@ for acceptance decisions.
 ## 2. Evaluation Target
 
 The DUT must be a black-box Spectre subcircuit with the standard project pin
-contract:
+contract. `amptest/config.json` is the source of truth for `dut_subckt` and
+`dut_pins_order`; the current repository contract is:
 
 ```spectre
-subckt neural_amp VIN VREF VDD GND VOUT
+subckt dummy_neural_amp GND VDD VIN VOUT VREF
 ...
-ends neural_amp
+ends dummy_neural_amp
 ```
 
 The evaluator conditions are fixed:
@@ -315,10 +316,15 @@ device rules, and file-editing constraints as ordinary agents.
 
 ## 8. Candidate Proposal Protocol
 
-Agents other than the Verifier submit candidates as JSON metadata plus a patch.
+Agents other than the Verifier submit candidates as three required files:
+
+- `proposal.json`
+- `patch.diff`
+- `notes.md`
+
 They do not directly claim verified success.
 
-Required candidate fields:
+Required `proposal.json` fields:
 
 ```json
 {
@@ -328,7 +334,7 @@ Required candidate fields:
   "hypothesis": "string",
   "primary_objective": "performance | area | power",
   "changed_blocks": ["bias"],
-  "files_touched": ["dut.scs", "devices.csv"],
+  "files_touched": ["amptest/dummy_neural_amp.scs", "amptest/devices.csv"],
   "expected_effect": {
     "performance_nrmse_combined": "decrease | increase | no_major_change | unknown",
     "area_total_p": "decrease | increase | no_major_change | unknown",
@@ -435,29 +441,39 @@ The Top Coordinator must never stack unaccepted patches.
 
 The workflow stores both summary state and full candidate artifacts.
 
+The first LangGraph runner records automation state under `automation_artifacts/`; see `docs/langgraph-runner.md` for the runner-specific artifact layout.
+
 Summary files:
 
-- `state.json`
-- `ledger.jsonl`
+- `automation_artifacts/state.json`
+- `automation_artifacts/ledger.jsonl`
 
-Candidate artifact directory:
+Candidate artifact and workspace directories:
 
 ```text
-artifacts/
+automation_artifacts/
+  state.json
+  ledger.jsonl
   candidates/
     <candidate_id>/
       proposal.json
+      notes.md
       patch.diff
-      dut.scs
-      devices.csv
+      review.json
+      verification.json
       ppa_metrics.json
       ppa_report.log
       spectre_ac.log
       spectre_tran.log
       verdict.json
+  workspaces/
+    <candidate_id>/
+      dummy_neural_amp.scs
+      devices.csv
+      config.json
 ```
 
-`state.json` should include:
+`automation_artifacts/state.json` should include:
 
 ```json
 {
@@ -466,27 +482,36 @@ artifacts/
   "accepted_candidate_id": null,
   "accepted_metrics": null,
   "accepted_ppa_surrogate_score": null,
+  "ppa_baseline_metrics": null,
+  "best_failed_candidate_id": null,
+  "best_failed_metrics": null,
+  "batch_no": 0,
   "three_bjt_verified_count": 0,
   "three_bjt_stagnated": false,
   "phase2a_verified_count": 0,
   "phase2a_stagnated": false,
-  "last_verification_at": null
+  "last_verification_at": null,
+  "last_top_decision_path": null,
+  "contract_hash": "string"
 }
 ```
 
-`ledger.jsonl` records one JSON object per candidate attempt:
+`automation_artifacts/ledger.jsonl` records one JSON object per candidate attempt:
 
 ```json
 {
   "candidate_id": "string",
-  "phase": "string",
-  "agent": "string",
-  "status": "accepted | rejected | error",
+  "batch_id": "string",
+  "phase": "phase1_performance | phase2a_area | phase2b_power",
+  "agent": "spec | architecture | diagnosis | optimizer | reviewer | prime",
+  "status": "accepted | rejected | error | interrupted",
   "reason": "string",
   "metrics": {},
   "ppa_surrogate_score": null,
-  "artifact_dir": "string",
-  "created_at": "string"
+  "artifact_dir": "automation_artifacts/candidates/<candidate_id>",
+  "workspace_dir": "automation_artifacts/workspaces/<candidate_id>",
+  "created_at": "string",
+  "contract_hash": "string"
 }
 ```
 

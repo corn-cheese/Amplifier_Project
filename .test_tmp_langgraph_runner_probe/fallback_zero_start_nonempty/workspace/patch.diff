@@ -1,0 +1,5 @@
+diff --git a/amptest/dummy_neural_amp.scs b/amptest/dummy_neural_amp.scs
+--- a/amptest/dummy_neural_amp.scs
++++ b/amptest/dummy_neural_amp.scs
+@@ -0,0 +1,1 @@
++inserted

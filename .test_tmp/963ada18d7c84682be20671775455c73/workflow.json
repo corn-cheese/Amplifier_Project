@@ -1,1 +1,0 @@
-{"backend": "eda_ssh", "amptest_local_dir": "amptest", "remote": {"host": "eda", "user": "student", "base_dir": "/tmp/work"}}

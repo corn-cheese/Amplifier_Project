@@ -1,0 +1,11 @@
+[project]
+name = "neural-amplifier-langgraph-runner"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+  "langgraph>=1.2,<2",
+  "pydantic>=2.13,<3"
+]
+
+[tool.setuptools]
+packages = ["langgraph_runner"]

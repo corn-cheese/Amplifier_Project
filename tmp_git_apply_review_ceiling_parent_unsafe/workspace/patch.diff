@@ -1,0 +1,5 @@
+--- a/amptest/dummy_neural_amp.scs
++++ b/amptest/dummy_neural_amp.scs
+@@ -1 +1 @@
+-base netlist
++patched netlist

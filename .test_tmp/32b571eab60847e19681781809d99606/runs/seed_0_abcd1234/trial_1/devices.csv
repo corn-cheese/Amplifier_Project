@@ -1,4 +1,0 @@
-name,type,count,width,length,multiplier,segments,seg_length,seg_width,ft_hz,area_p,include_in_ppa
-Q1,npn,6,,,,,,,,,true
-R1,resistor,1,,,,100,5.73u,0.35u,,,true
-C1,capacitor,1,11.5u,11.7u,1,,,,,,true

@@ -1,0 +1,6 @@
+diff --git a/../outside.txt b/../outside.txt
+--- a/../outside.txt
++++ b/../outside.txt
+@@ -1 +1 @@
+-outside
++changed

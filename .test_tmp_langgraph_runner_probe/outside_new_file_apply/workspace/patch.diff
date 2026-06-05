@@ -1,0 +1,6 @@
+diff --git a/../outside_created.txt b/../outside_created.txt
+new file mode 100644
+--- /dev/null
++++ b/../outside_created.txt
+@@ -0,0 +1 @@
++outside

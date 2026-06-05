@@ -1,0 +1,29 @@
+{
+  "artifact_root": "automation_artifacts",
+  "contract_path": "docs/top-coordinator-contract.md",
+  "amptest_dir": "amptest",
+  "dut_netlist": "amptest/dummy_neural_amp.scs",
+  "devices_csv": "amptest/devices.csv",
+  "amptest_config": "amptest/config.json",
+  "candidate_generation_batch_size": 3,
+  "max_active_primes_per_subagent": 2,
+  "max_total_primes_per_subagent": 4,
+  "agent_timeouts_seconds": {
+    "subagent": 1200,
+    "prime": 600,
+    "reviewer": 300,
+    "top": 300
+  },
+  "verifier": {
+    "command": "python {repo_root}/amptest/ppa_wrapper.py analyze --config {local_candidate_dir}/config.json",
+    "timeout_seconds": 1800,
+    "min_interval_seconds": 30,
+    "required_outputs": [
+      "verification.json",
+      "ppa_metrics.json",
+      "ppa_report.log",
+      "spectre_ac.log",
+      "spectre_tran.log"
+    ]
+  }
+}

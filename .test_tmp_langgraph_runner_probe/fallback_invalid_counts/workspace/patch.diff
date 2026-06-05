@@ -1,0 +1,6 @@
+diff --git a/amptest/dummy_neural_amp.scs b/amptest/dummy_neural_amp.scs
+--- a/amptest/dummy_neural_amp.scs
++++ b/amptest/dummy_neural_amp.scs
+@@ -1,0 +1,0 @@
+-base netlist
++patched netlist
