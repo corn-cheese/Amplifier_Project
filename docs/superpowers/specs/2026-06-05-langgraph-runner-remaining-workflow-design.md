@@ -22,8 +22,8 @@ Implemented and verified:
 
 - `python -m langgraph_runner --repo-root . --config runner_config.json init`
   initializes `automation_artifacts/`.
-- `run-one-batch`, `run`, and `resume` enter the graph with bounded shell-safe
-  behavior.
+- `run-one-batch`, counted `run --count N`, and `resume` enter the graph with
+  shell-safe count-controlled behavior.
 - `load_context`, `plan_batch`, `deterministic_review`,
   `evaluate_candidates`, `record_batch`, and `route_next` have deterministic
   boundary behavior.
@@ -39,7 +39,7 @@ Implemented and verified:
 
 ## Design Goals
 
-- Run a complete bounded batch: assign candidates, call agents, assemble
+- Run a complete counted batch/pass: assign candidates, call agents, assemble
   artifacts, review, verify, evaluate, record, and route.
 - Keep every trusted decision based on schema-validated files, not agent stdout.
 - Preserve deterministic safety boundaries around file scope, DUT contract,
@@ -60,8 +60,8 @@ Implemented and verified:
   directly.
 - Do not allow failed or rejected candidates to become the base for future
   patches.
-- Do not implement unbounded graph recursion in the same step that wires real
-  batch execution. Start with one bounded batch and then add loop routing.
+- Do not implement unbounded graph recursion. Repetition must be explicit
+  counted_run control where the count unit is a candidate batch/pass.
 - Do not use LangGraph checkpoint state as the canonical ledger.
 
 ## Remaining Architecture
@@ -310,7 +310,8 @@ Human interrupt behavior:
   response, and allow the top decision node to produce a new validated
   `top_decision.json`.
 - If no pending interrupt exists, `resume --human-response` records a warning
-  and runs the bounded graph pass without special handling.
+  and runs at most one counted pass unless an explicit count already exists in
+  persisted graph state.
 
 ## Batch Recording Design
 
@@ -348,10 +349,13 @@ new state. Record a batch-level error artifact instead.
 - `human_interrupt`: stop and require resume.
 - `rerun_verification`: return to `verify_queue` for selected candidates.
 
-The first follow-up implementation should keep `run` bounded with
-`stop_after_current_pass=True`. After one real batch is stable, add an explicit
-`run-loop` or change `run` to loop only when the user asks for unattended
-continuous execution.
+`run` should be count-controlled with `--count N`, defaulting to 1. Internally
+the graph should carry clear counted_run fields such as `counted_run_total` and
+`counted_run_remaining`. Count affects only `next_batch`: Top decisions for
+`stop`, `human_interrupt`, and `rerun_verification` win first; otherwise
+`route_next` decrements the remaining pass count and stops when the count is
+exhausted. Direct graph calls without count fields should remain stable for
+recursion and invalid-route tests.
 
 Stop conditions:
 
@@ -391,15 +395,15 @@ Required test layers:
 
 - Unit tests for every new parser/schema helper.
 - Node tests for each previously pass-through graph node.
-- Integration test for one bounded batch with fake agent outputs and fake
+- Integration test for one counted batch with fake agent outputs and fake
   verifier command.
 - Integration test for retry after invalid agent output.
 - Integration test for prime request limit enforcement.
 - Integration test for rejected candidate not being promoted.
 - Integration test for accepted candidate promotion and ledger/state update.
 - Integration test for `resume --human-response` with a pending interrupt.
-- Regression test that `run` remains bounded until continuous loop is
-  explicitly implemented.
+- Regression test that `run --count N` executes only the requested number of
+  candidate batch/passes.
 
 Fake verifier tests should avoid Cadence/Spectre and write deterministic
 `verification.json`, `ppa_metrics.json`, `ppa_report.log`, `spectre_ac.log`,
@@ -417,15 +421,15 @@ and `spectre_tran.log` into the candidate directory.
 6. Extend evaluation to write `verdict.json` for every candidate.
 7. Implement `record_batch` canonical ledger/state mutation and promotion.
 8. Implement `top_anomaly_check` and human interrupt/resume semantics.
-9. Add bounded end-to-end graph tests with fake agents and fake verifier.
-10. Only after bounded batches are reliable, add continuous route looping or a
-    separate command for unattended runs.
+9. Add counted end-to-end graph tests with fake agents and fake verifier.
+10. Keep any unattended or continuous operation outside the CLI unless a future
+    design adds a separate explicit command.
 
 ## Acceptance Criteria
 
 The remaining workflow implementation is complete when:
 
-- `run-one-batch` can execute one bounded batch using fake test agents and fake
+- `run-one-batch` can execute one counted batch/pass using fake test agents and fake
   verifier in tests.
 - Review-passing candidates are actually verified through `Verifier`.
 - Every candidate gets `review.json`, `verification.json` when applicable, and

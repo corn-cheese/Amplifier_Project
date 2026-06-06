@@ -1,5 +1,8 @@
 import json
+import contextlib
+import io
 import os
+import sys
 import unittest
 import uuid
 from pathlib import Path
@@ -61,10 +64,26 @@ def configured_root(case: str) -> tuple[Path, Path]:
 class FakeGraph:
     def __init__(self):
         self.invocations = []
+        self.configs = []
 
-    def invoke(self, state):
+    def invoke(self, state, config=None):
         self.invocations.append(state)
+        self.configs.append(config)
         return state
+
+
+class CapturingGraph:
+    def __init__(self, graph, default_config=None):
+        self.graph = graph
+        self.default_config = default_config
+        self.final_state = None
+        self.configs = []
+
+    def invoke(self, state, config=None):
+        effective_config = config if config is not None else self.default_config
+        self.configs.append(effective_config)
+        self.final_state = self.graph.invoke(state, config=effective_config)
+        return self.final_state
 
 
 class TestCli(unittest.TestCase):
@@ -123,19 +142,204 @@ class TestCli(unittest.TestCase):
             graph.invocations[0]["state_path"],
             str(root.resolve() / "automation_artifacts" / "state.json"),
         )
+        self.assertEqual(graph.invocations[0]["counted_run_total"], 1)
+        self.assertEqual(graph.invocations[0]["counted_run_remaining"], 1)
+        self.assertNotIn("stop_after_current_pass", graph.invocations[0])
 
-    def test_run_with_real_shell_graph_returns_without_recursion(self):
+    def test_run_count_sets_counted_run_state(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("run_count")
+        graph = FakeGraph()
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph):
+            result = main(["--repo-root", str(root), "--config", str(config), "run", "--count", "3"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(graph.invocations[0]["route"], "next_batch")
+        self.assertEqual(graph.invocations[0]["counted_run_total"], 3)
+        self.assertEqual(graph.invocations[0]["counted_run_remaining"], 3)
+        self.assertEqual(graph.configs[0], {"recursion_limit": 60})
+
+    def test_run_count_one_sets_recursion_limit(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("run_count_one_recursion_limit")
+        graph = FakeGraph()
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph):
+            result = main(["--repo-root", str(root), "--config", str(config), "run", "--count", "1"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(graph.configs[0], {"recursion_limit": 20})
+
+    def test_run_returns_nonzero_and_reports_artifacts_for_critical_batch_stop(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("run_critical_batch_stop")
+        run_dir = root / "automation_artifacts" / "runs" / "manual"
+        batch_error = run_dir / "batch_error.json"
+        top_decision = run_dir / "top_decision.json"
+        graph = FakeGraph()
+
+        def invoke(state, config=None):
+            graph.invocations.append(state)
+            graph.configs.append(config)
+            return {
+                **state,
+                "route": "stop",
+                "top_decision": {
+                    "decision": "stop",
+                    "reason": "all candidates failed agent execution",
+                    "anomaly_level": "critical",
+                },
+                "top_decision_path": str(top_decision),
+                "errors": ["record_batch: all candidates failed agent execution"],
+            }
+
+        graph.invoke = invoke
+        stderr = io.StringIO()
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph):
+            with contextlib.redirect_stderr(stderr):
+                result = main(["--repo-root", str(root), "--config", str(config), "run", "--count", "1"])
+
+        self.assertEqual(result, 1)
+        diagnostic = stderr.getvalue()
+        self.assertIn("all candidates failed agent execution", diagnostic)
+        self.assertIn(str(top_decision), diagnostic)
+        self.assertIn(str(batch_error), diagnostic)
+
+    def test_resume_returns_nonzero_and_reports_artifacts_for_critical_batch_stop(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("resume_critical_batch_stop")
+        run_dir = root / "automation_artifacts" / "runs" / "manual"
+        batch_error = run_dir / "batch_error.json"
+        top_decision = run_dir / "top_decision.json"
+        graph = FakeGraph()
+
+        def invoke(state, config=None):
+            graph.invocations.append(state)
+            graph.configs.append(config)
+            return {
+                **state,
+                "route": "stop",
+                "top_decision": {
+                    "decision": "stop",
+                    "reason": "all candidates failed agent execution",
+                    "anomaly_level": "critical",
+                },
+                "top_decision_path": str(top_decision),
+                "errors": ["record_batch: all candidates failed agent execution"],
+            }
+
+        graph.invoke = invoke
+        stderr = io.StringIO()
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph):
+            with contextlib.redirect_stderr(stderr):
+                result = main(
+                    [
+                        "--repo-root",
+                        str(root),
+                        "--config",
+                        str(config),
+                        "resume",
+                        "--human-response",
+                        "approved",
+                    ]
+                )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(graph.invocations[0]["counted_run_total"], 1)
+        diagnostic = stderr.getvalue()
+        self.assertIn("all candidates failed agent execution", diagnostic)
+        self.assertIn(str(top_decision), diagnostic)
+        self.assertIn(str(batch_error), diagnostic)
+
+    def test_parser_rejects_non_positive_run_count(self):
+        from langgraph_runner.cli import build_parser
+
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["run", "--count", "0"])
+
+    def test_run_with_real_shell_graph_reports_agent_failure_without_recursion(self):
+        from langgraph_runner.artifacts import ArtifactPaths
         from langgraph_runner.cli import main
         from langgraph_runner.graph import build_graph
+        from langgraph_runner.state_store import StateStore
+        from tests.langgraph_runner.test_graph import ExecutionFailureAgentRunner, write_workflow_fixture
 
         root, config = configured_root("run_real_shell_graph")
-        graph = build_graph()
+        config = write_workflow_fixture(root, batch_size=1)
+        paths = ArtifactPaths(repo_root=root, artifact_root=root / "automation_artifacts")
+        StateStore(paths, root / "docs" / "contract.md").initialize()
+        graph = CapturingGraph(build_graph())
+        fake_runner = ExecutionFailureAgentRunner(error_class="agent_process_failed", exit_code=2)
+        stderr = io.StringIO()
 
         with patch("langgraph_runner.cli.build_graph", return_value=graph) as build_graph_mock:
-            result = main(["--repo-root", str(root), "--config", str(config), "run"])
+            with patch("langgraph_runner.graph.AgentRunner", return_value=fake_runner):
+                with contextlib.redirect_stderr(stderr):
+                    result = main(["--repo-root", str(root), "--config", str(config), "run"])
+
+        self.assertEqual(result, 1)
+        build_graph_mock.assert_called_once_with()
+        self.assertEqual(graph.configs[0], {"recursion_limit": 20})
+        self.assertIn("all candidates failed agent execution", stderr.getvalue())
+
+    def test_run_count_two_with_real_shell_graph_returns_without_recursion(self):
+        from langgraph_runner.artifacts import ArtifactPaths
+        from langgraph_runner.cli import main
+        from langgraph_runner.graph import build_graph
+        from langgraph_runner.state_store import StateStore
+        from tests.langgraph_runner.test_graph import FakeAgentRunner, write_workflow_fixture
+
+        root, config = configured_root("run_count_two_real_shell_graph")
+        config = write_workflow_fixture(root, batch_size=1)
+        paths = ArtifactPaths(repo_root=root, artifact_root=root / "automation_artifacts")
+        StateStore(paths, root / "docs" / "contract.md").initialize()
+        graph = CapturingGraph(build_graph(), default_config={"recursion_limit": 20})
+        fake_runner = FakeAgentRunner()
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph) as build_graph_mock:
+            with patch("langgraph_runner.graph.AgentRunner", return_value=fake_runner):
+                result = main(["--repo-root", str(root), "--config", str(config), "run", "--count", "2"])
 
         self.assertEqual(result, 0)
         build_graph_mock.assert_called_once_with()
+        self.assertIsNotNone(graph.final_state)
+        self.assertGreater(graph.configs[0]["recursion_limit"], 20)
+        self.assertEqual(graph.final_state["route"], "stop")
+        self.assertEqual(graph.final_state["counted_run_remaining"], 0)
+
+    def test_run_count_one_local_backend_reaches_verification_without_codex_runner(self):
+        from langgraph_runner.artifacts import ArtifactPaths
+        from langgraph_runner.cli import main
+        from langgraph_runner.graph import build_graph
+        from langgraph_runner.state_store import StateStore
+        from tests.langgraph_runner.test_graph import write_workflow_fixture
+
+        root, _config = configured_root("run_count_one_local_backend")
+        config = write_workflow_fixture(root, batch_size=1)
+        config_data = json.loads(config.read_text(encoding="utf-8"))
+        config_data["agent_backend"] = {"mode": "local_deterministic"}
+        config.write_text(json.dumps(config_data, indent=2) + "\n", encoding="utf-8")
+        paths = ArtifactPaths(repo_root=root, artifact_root=root / "automation_artifacts")
+        StateStore(paths, root / "docs" / "contract.md").initialize()
+        graph = CapturingGraph(build_graph())
+
+        with patch("langgraph_runner.cli.build_graph", return_value=graph):
+            with patch("langgraph_runner.graph.AgentRunner", side_effect=AssertionError("codex backend should not be used")):
+                result = main(["--repo-root", str(root), "--config", str(config), "run", "--count", "1"])
+
+        self.assertEqual(result, 0)
+        self.assertIsNotNone(graph.final_state)
+        candidate_id = graph.final_state["candidate_ids"][0]
+        candidate_dir = paths.candidate_dir(candidate_id)
+        self.assertTrue((candidate_dir / "verification.json").exists())
+        self.assertFalse(list(paths.run_dir("manual").glob("agent_outputs/*/codex_home")))
 
     def test_default_config_resolves_relative_to_repo_root(self):
         from langgraph_runner.cli import main
@@ -209,6 +413,8 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(graph.invocations), 1)
         self.assertEqual(graph.invocations[0]["route"], "next_batch")
         self.assertEqual(graph.invocations[0]["human_response"], "approved")
+        self.assertEqual(graph.invocations[0]["counted_run_total"], 1)
+        self.assertEqual(graph.invocations[0]["counted_run_remaining"], 1)
 
     def test_parser_accepts_resume_human_response(self):
         from langgraph_runner.cli import build_parser
@@ -217,6 +423,157 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(args.command, "resume")
         self.assertEqual(args.human_response, "approved")
+
+    def test_parser_accepts_powershell_safe_smoke_command_as_single_value(self):
+        from langgraph_runner.cli import build_parser
+
+        smoke_command = f'& "{sys.executable}" -c "print(\'smoke\')"'
+
+        args = build_parser().parse_args(
+            [
+                "production-run",
+                "--artifact-root",
+                "automation_artifacts/prod",
+                "--eda-smoke-command",
+                smoke_command,
+            ]
+        )
+
+        self.assertEqual(args.command, "production-run")
+        self.assertEqual(args.eda_smoke_command, smoke_command)
+
+    def test_production_run_misplit_smoke_command_records_operator_command_error(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("production_misplit_smoke_command")
+
+        with patch("langgraph_runner.cli.run_production_canary") as run_mock:
+            with self.assertRaises(SystemExit) as context:
+                main(
+                    [
+                        "--repo-root",
+                        str(root),
+                        "--config",
+                        str(config),
+                        "production-run",
+                        "--artifact-root",
+                        "automation_artifacts/prod",
+                        "--eda-smoke-command",
+                        "&",
+                        str(Path(sys.executable)),
+                        "-c",
+                        "print('smoke')",
+                    ]
+                )
+
+        self.assertEqual(context.exception.code, 2)
+        run_mock.assert_not_called()
+        failure_path = root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_failure.json"
+        self.assertTrue(failure_path.exists())
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        self.assertEqual(failure["error_class"], "operator_command_error")
+        self.assertEqual(failure["checks"]["argument_parser"]["class"], "operator_command_error")
+        self.assertIn("unrecognized arguments", failure["checks"]["argument_parser"]["details"])
+        details = json.loads(failure["checks"]["argument_parser"]["details"])
+        self.assertEqual(details["eda_smoke_command"], "&")
+        self.assertEqual(details["unparsed_argv"], [str(Path(sys.executable)), "-c", "print('smoke')"])
+        self.assertIn("unrecognized arguments", details["stderr"])
+
+    def test_production_run_missing_smoke_command_value_records_operator_command_error(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("production_missing_smoke_value")
+
+        with patch("langgraph_runner.cli.run_production_canary") as run_mock:
+            with self.assertRaises(SystemExit) as context:
+                main(
+                    [
+                        "--repo-root",
+                        str(root),
+                        "--config",
+                        str(config),
+                        "production-run",
+                        "--artifact-root",
+                        "automation_artifacts/prod",
+                        "--eda-smoke-command",
+                    ]
+                )
+
+        self.assertEqual(context.exception.code, 2)
+        run_mock.assert_not_called()
+        failure_path = root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_failure.json"
+        self.assertTrue(failure_path.exists())
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        self.assertEqual(failure["error_class"], "operator_command_error")
+        details = json.loads(failure["checks"]["argument_parser"]["details"])
+        self.assertIn("expected one argument", details["stderr"])
+        self.assertIn("--eda-smoke-command", details["stderr"])
+
+    def test_run_invalid_count_named_production_run_does_not_write_production_failure(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("run_invalid_count_named_production_run")
+
+        with self.assertRaises(SystemExit) as context:
+            main(["--repo-root", str(root), "--config", str(config), "run", "--count", "production-run"])
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertFalse(
+            (root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_failure.json").exists()
+        )
+
+    def test_production_parser_failure_outside_artifact_root_does_not_mask_argparse_exit(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("production_parser_failure_outside_artifact_root")
+
+        with self.assertRaises(SystemExit) as context:
+            main(
+                [
+                    "--repo-root",
+                    str(root),
+                    "--config",
+                    str(config),
+                    "production-run",
+                    "--artifact-root",
+                    "../outside-prod",
+                    "--eda-smoke-command",
+                ]
+            )
+
+        self.assertEqual(context.exception.code, 2)
+        self.assertFalse((root.parent / "outside-prod").exists())
+
+    def test_production_parser_failure_honors_equals_style_root_and_artifact_options(self):
+        from langgraph_runner.cli import main
+
+        root, config = configured_root("production_equals_style_parser_failure")
+        cwd = scratch_root("production_equals_style_parser_failure_cwd")
+        original_cwd = Path.cwd()
+
+        try:
+            os.chdir(cwd)
+            with self.assertRaises(SystemExit) as context:
+                main(
+                    [
+                        f"--repo-root={root}",
+                        f"--config={config}",
+                        "production-run",
+                        "--artifact-root=automation_artifacts/prod2",
+                        "--eda-smoke-command",
+                    ]
+                )
+        finally:
+            os.chdir(original_cwd)
+
+        self.assertEqual(context.exception.code, 2)
+        intended_failure = root / "automation_artifacts" / "prod2" / "runs" / "manual" / "production_run_failure.json"
+        self.assertTrue(intended_failure.exists())
+        failure = json.loads(intended_failure.read_text(encoding="utf-8"))
+        self.assertEqual(failure["artifact_root"], str(root / "automation_artifacts" / "prod2"))
+        self.assertEqual(failure["config_path"], str(config))
+        self.assertEqual(failure["error_class"], "operator_command_error")
+        self.assertFalse((cwd / "automation_artifacts" / "prod2" / "runs" / "manual" / "production_run_failure.json").exists())
 
 
 if __name__ == "__main__":

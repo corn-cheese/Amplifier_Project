@@ -11,7 +11,8 @@ from langgraph.graph import END, StateGraph
 from pydantic import ValidationError
 
 from .acceptance import AcceptanceDecision, evaluate_candidate, ppa_surrogate_score
-from .agent_io import AgentCall, AgentRunResult, AgentRunner, write_context_package
+from .agent_errors import AGENT_EXECUTION_ERROR_CLASSES, AGENT_EXECUTION_FAILED, AGENT_TIMEOUT
+from .agent_io import AgentCall, AgentRunResult, AgentRunner, _finalize_agent_run, resolve_codex_command, write_context_package
 from .agent_outputs import copy_prime_output, parse_prime_output, parse_subagent_output
 from .artifacts import ArtifactPaths
 from .batch import CandidateAssignment, plan_batch
@@ -21,7 +22,7 @@ from .prime_limits import PrimeLimitTracker
 from .review import DeterministicReviewer
 from .schemas import AgentRole, CandidateStatus, LedgerEntry, Phase, ReviewResult, RunnerState, TopDecision, VerificationResult
 from .state_store import StateStore
-from .verifier import Verifier
+from .verifier import STDERR_LOG, STDOUT_LOG, Verifier
 from .workspace import CandidateWorkspace
 
 
@@ -41,6 +42,26 @@ GRAPH_NODE_NAMES = [
     "route_next",
 ]
 
+BATCH_LOCAL_STATE_DEFAULTS = {
+    "batch_assignments": [],
+    "candidate_ids": [],
+    "agent_calls": [],
+    "subagent_outputs": [],
+    "prime_requests": [],
+    "prime_calls": [],
+    "prime_outputs": [],
+    "candidate_artifacts": [],
+    "review_results": [],
+    "verification_queue": [],
+    "verification_results": [],
+    "candidate_evaluations": [],
+    "top_decision": {},
+    "top_decision_path": "",
+    "ledger_entries": [],
+    "promoted_candidate_id": None,
+    "human_interrupt": None,
+}
+
 
 class GraphState(TypedDict, total=False):
     repo_root: str
@@ -53,6 +74,8 @@ class GraphState(TypedDict, total=False):
     human_response: str
     resume_pending_interrupt: bool
     stop_after_current_pass: bool
+    counted_run_total: int
+    counted_run_remaining: int
     runner_config: dict[str, Any]
     runner_state: dict[str, Any]
     run_dir: str
@@ -87,6 +110,14 @@ def _record_error(state: GraphState, node_name: str, message: str) -> GraphState
     errors = list(state.get("errors", []))
     errors.append(f"{node_name}: {message}")
     return {**state, "errors": errors}
+
+
+def _clear_batch_local_state(state: GraphState) -> GraphState:
+    defaults = {
+        key: list(value) if isinstance(value, list) else dict(value) if isinstance(value, dict) else value
+        for key, value in BATCH_LOCAL_STATE_DEFAULTS.items()
+    }
+    return {**state, **defaults}
 
 
 def _repo_root(state: GraphState) -> Path:
@@ -152,6 +183,40 @@ def _candidate_result_map(
             continue
         mapped[candidate_id] = result
     return mapped
+
+
+def _artifact_result_for_candidate(
+    *,
+    paths: ArtifactPaths | None,
+    candidate_id: str,
+    filename: str,
+    model: type[ReviewResult] | type[VerificationResult],
+    errors: list[str],
+    node_name: str = "evaluate_candidates",
+) -> dict[str, Any] | None:
+    if paths is None:
+        return None
+    artifact_path = paths.candidate_dir(candidate_id) / filename
+    if not artifact_path.exists():
+        return None
+    try:
+        raw = json.loads(artifact_path.read_text(encoding="utf-8"))
+        result = model.model_validate(raw)
+        if result.candidate_id != candidate_id:
+            raise ValueError(f"candidate_id mismatch: {result.candidate_id!r}")
+        return result.model_dump(mode="json")
+    except (OSError, json.JSONDecodeError, TypeError, ValueError, ValidationError) as exc:
+        message = f"invalid_{artifact_path.stem}_artifact: {exc}"
+        errors.append(f"{node_name}: {candidate_id} {message}")
+        if model is ReviewResult:
+            return {
+                "candidate_id": candidate_id,
+                "passed": False,
+                "checks": {"artifact_valid": False},
+                "errors": [message],
+                "warnings": [],
+            }
+        return _verification_error_payload(candidate_id, paths.candidate_dir(candidate_id), message)
 
 
 def _assignment_to_dict(assignment: CandidateAssignment) -> dict[str, Any]:
@@ -226,6 +291,24 @@ def _timeout_for_role(config: dict[str, Any], role: str, default_key: str) -> in
     return 1200
 
 
+def _agent_runner_for_config(config: dict[str, Any]):
+    backend = config.get("agent_backend") or {}
+    mode = backend.get("mode", "codex_exec") if isinstance(backend, dict) else "codex_exec"
+    if mode == "local_deterministic":
+        from .local_agent import LocalDeterministicAgentRunner
+
+        return LocalDeterministicAgentRunner()
+    return AgentRunner()
+
+
+def _agent_exception_command_for_config(config: dict[str, Any], call: AgentCall) -> list[str]:
+    backend = config.get("agent_backend") or {}
+    mode = backend.get("mode", "codex_exec") if isinstance(backend, dict) else "codex_exec"
+    if mode == "local_deterministic":
+        return ["local_deterministic_agent", call.role]
+    return [*resolve_codex_command(), "exec", "-C", str(call.context_path), "-"]
+
+
 def _run_agent_for_assignment(
     *,
     state: GraphState,
@@ -253,6 +336,8 @@ def _run_agent_for_assignment(
         contract_excerpt=contract_excerpt,
         state_summary=state.get("runner_state", {}),
         recent_ledger=recent_ledger,
+        dut_netlist_path=str(config["dut_netlist"]),
+        devices_csv_path=str(config["devices_csv"]),
         base_dut=_resolve_repo_config_path(repo_root, str(config["dut_netlist"])),
         base_devices=_resolve_repo_config_path(repo_root, str(config["devices_csv"])),
     )
@@ -261,14 +346,20 @@ def _run_agent_for_assignment(
             json.dumps(validation_errors, indent=2) + "\n",
             encoding="utf-8",
         )
+    artifact_output_dir = context_path / "output"
     output_dir = run_dir / "agent_outputs" / agent_call_id
     call = AgentCall(
         role=assignment.role,
         context_path=context_path,
         output_dir=output_dir,
         timeout_seconds=_timeout_for_role(config, assignment.role, "subagent"),
+        artifact_output_dir=artifact_output_dir,
+        agent_call_id=agent_call_id,
     )
-    result = AgentRunner().run(call)
+    try:
+        result = _agent_runner_for_config(config).run(call)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result = _write_agent_exception_result(call, exc, command=_agent_exception_command_for_config(config, call))
     call_state = {
         "agent_call_id": agent_call_id,
         "candidate_id": assignment.candidate_id,
@@ -276,13 +367,190 @@ def _run_agent_for_assignment(
         "role": assignment.role,
         "attempt": attempt,
         "context_path": str(context_path),
-        "output_dir": str(output_dir),
+        "output_dir": str(artifact_output_dir),
+        "log_dir": str(output_dir),
         "exit_code": result.exit_code,
         "stdout_path": str(result.stdout_path),
         "stderr_path": str(result.stderr_path),
-        "status": "completed" if result.exit_code == 0 else "error",
+        "status": result.status,
     }
+    if result.agent_run_path is not None:
+        call_state["agent_run_path"] = str(result.agent_run_path)
+    if result.error_class is not None:
+        call_state["error_class"] = result.error_class
+    if result.error is not None:
+        call_state["error"] = result.error
+    if result.command is not None:
+        call_state["command"] = list(result.command)
     return call_state, result
+
+
+def _write_agent_exception_result(
+    call: AgentCall,
+    exc: OSError | subprocess.TimeoutExpired,
+    *,
+    command: list[str] | None = None,
+) -> AgentRunResult:
+    artifact_output_dir = call.artifact_output_dir or call.output_dir
+    stdout_path = call.output_dir / "stdout.log"
+    stderr_path = call.output_dir / "stderr.log"
+    agent_run_path = call.output_dir / "agent_run.json"
+    command = command or [*resolve_codex_command(), "exec", "-C", str(call.context_path), "-"]
+    if isinstance(exc, subprocess.TimeoutExpired):
+        exit_code = 124
+        stdout = _text(exc.stdout if exc.stdout is not None else exc.output)
+        stderr_text = _text(exc.stderr)
+        error = f"agent command timed out after {call.timeout_seconds} seconds"
+        stderr = stderr_text + ("\n" if stderr_text else "") + error
+        error_class = AGENT_TIMEOUT
+    else:
+        exit_code = 1
+        stdout = ""
+        stderr = str(exc)
+        error = str(exc)
+        error_class = AGENT_EXECUTION_FAILED
+    try:
+        call.output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as setup_exc:
+        error = error + f"; could not create log directory: {setup_exc}"
+    try:
+        artifact_output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as setup_exc:
+        error = error + f"; could not create artifact output directory: {setup_exc}"
+    return _finalize_agent_run(
+        call=call,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        agent_run_path=agent_run_path,
+        artifact_output_dir=artifact_output_dir,
+        command=command,
+        exit_code=exit_code,
+        stdout=stdout,
+        stderr=stderr,
+        status="error",
+        error_class=error_class,
+        error=error,
+    )
+
+
+def _subagent_output_dir_for_call(call: dict[str, Any], *, repo_root: Path | None = None) -> Path | None:
+    output_dir = str(call.get("output_dir") or "")
+    if output_dir:
+        path = Path(output_dir)
+        if path != Path(".") and _valid_fallback_output_dir(path, repo_root=repo_root):
+            return path
+    context_path = str(call.get("context_path") or "")
+    if context_path:
+        path = Path(context_path)
+        if path != Path(".") and path.exists():
+            return path / "output"
+    if not output_dir:
+        return None
+    return None
+
+
+def _valid_fallback_output_dir(path: Path, *, repo_root: Path | None) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    if resolved == Path.cwd().resolve():
+        return False
+    if repo_root is not None and resolved == repo_root.resolve():
+        return False
+    if not resolved.is_dir():
+        return False
+    candidate_artifact_names = {"proposal.json", "patch.diff", "notes.md"}
+    if any((resolved / name).exists() for name in candidate_artifact_names):
+        return True
+    try:
+        next(resolved.iterdir())
+    except StopIteration:
+        return False
+    except OSError:
+        return False
+    return False
+
+
+def _agent_execution_error_class(call: dict[str, Any]) -> str | None:
+    error_class = str(call.get("error_class") or "")
+    if error_class in AGENT_EXECUTION_ERROR_CLASSES:
+        return error_class
+    errors = call.get("errors", [])
+    if isinstance(errors, list):
+        for error in errors:
+            value = str(error)
+            if value in AGENT_EXECUTION_ERROR_CLASSES:
+                return value
+    return None
+
+
+def _subagent_error_output_state(
+    *,
+    call: dict[str, Any],
+    candidate_id: str,
+    agent_call_id: str,
+    output_dir: Path | None,
+    errors: list[str],
+    error_class: str | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    state = {
+        "candidate_id": candidate_id,
+        "agent_call_id": agent_call_id,
+        "output_dir": str(output_dir) if output_dir is not None else "",
+        "valid": False,
+        "status": "error",
+        "errors": errors,
+        "prime_requests": [],
+    }
+    if error_class is not None:
+        state["error_class"] = error_class
+    if error:
+        state["error"] = error
+    if call.get("agent_run_path"):
+        state["agent_run_path"] = str(call["agent_run_path"])
+    if call.get("stdout_path"):
+        state["stdout_path"] = str(call["stdout_path"])
+    if call.get("stderr_path"):
+        state["stderr_path"] = str(call["stderr_path"])
+    return state
+
+
+def _should_retry_subagent_output(call: dict[str, Any], parse_errors: list[str]) -> bool:
+    if _agent_execution_error_class(call):
+        return False
+    if call.get("status") == "error":
+        return False
+    if "agent_output_path_missing" in parse_errors:
+        return False
+    return True
+
+
+def _agent_run_result_fields(result: AgentRunResult) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "exit_code": result.exit_code,
+        "stdout_path": str(result.stdout_path),
+        "stderr_path": str(result.stderr_path),
+        "status": result.status,
+    }
+    if result.agent_run_path is not None:
+        fields["agent_run_path"] = str(result.agent_run_path)
+    if result.error_class is not None:
+        fields["error_class"] = result.error_class
+    if result.error is not None:
+        fields["error"] = result.error
+    if result.command is not None:
+        fields["command"] = list(result.command)
+    return fields
+
+
+def _text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def _load_runner_state(state: GraphState, paths: ArtifactPaths, contract_path: Path) -> GraphState:
@@ -358,6 +626,7 @@ def plan_batch_node(state: GraphState) -> GraphState:
     next_state = _record_event(state, "plan_batch")
     if next_state.get("resume_pending_interrupt"):
         return next_state
+    next_state = _clear_batch_local_state(next_state)
     if not next_state.get("runner_config"):
         return _record_error(next_state, "plan_batch", "missing runner_config; skipped batch planning")
     if not next_state.get("runner_state"):
@@ -434,13 +703,45 @@ def collect_subagent_requests_node(state: GraphState) -> GraphState:
     final_outputs: dict[str, dict[str, Any]] = {}
     prime_requests: list[dict[str, Any]] = []
     errors = list(next_state.get("errors", []))
+    repo_root = _repo_root(next_state)
 
     for call in list(agent_calls):
         candidate_id = str(call.get("candidate_id") or "")
         agent_call_id = str(call.get("agent_call_id") or "")
-        output_dir = Path(str(call.get("output_dir") or "."))
-        if not candidate_id or not agent_call_id or not output_dir.exists():
+        execution_error_class = _agent_execution_error_class(call)
+        if execution_error_class:
+            final_outputs[candidate_id] = _subagent_error_output_state(
+                call=call,
+                candidate_id=candidate_id,
+                agent_call_id=agent_call_id,
+                output_dir=_subagent_output_dir_for_call(call, repo_root=repo_root),
+                errors=[execution_error_class, *([str(call["error"])] if call.get("error") else [])],
+                error_class=execution_error_class,
+                error=str(call.get("error") or ""),
+            )
+            continue
+
+        output_dir = _subagent_output_dir_for_call(call, repo_root=repo_root)
+        if not candidate_id or not agent_call_id:
             parsed = None
+            parse_errors = ["missing_agent_output"]
+        elif output_dir is None:
+            parsed = _subagent_error_output_state(
+                call=call,
+                candidate_id=candidate_id,
+                agent_call_id=agent_call_id,
+                output_dir=None,
+                errors=["agent_output_path_missing"],
+            )
+            parse_errors = ["agent_output_path_missing"]
+        elif not output_dir.exists():
+            parsed = _subagent_error_output_state(
+                call=call,
+                candidate_id=candidate_id,
+                agent_call_id=agent_call_id,
+                output_dir=output_dir,
+                errors=["missing_agent_output"],
+            )
             parse_errors = ["missing_agent_output"]
         else:
             parsed_output = parse_subagent_output(output_dir, candidate_id, agent_call_id=agent_call_id)
@@ -452,7 +753,7 @@ def collect_subagent_requests_node(state: GraphState) -> GraphState:
             prime_requests.extend(parsed.get("prime_requests", []))
             continue
 
-        if candidate_id in assignments:
+        if candidate_id in assignments and _should_retry_subagent_output(call, parse_errors):
             try:
                 retry_call, _result = _run_agent_for_assignment(
                     state=next_state,
@@ -461,8 +762,30 @@ def collect_subagent_requests_node(state: GraphState) -> GraphState:
                     validation_errors=parse_errors,
                 )
                 agent_calls.append(retry_call)
+                retry_error_class = _agent_execution_error_class(retry_call)
+                if retry_error_class:
+                    final_outputs[candidate_id] = _subagent_error_output_state(
+                        call=retry_call,
+                        candidate_id=candidate_id,
+                        agent_call_id=str(retry_call["agent_call_id"]),
+                        output_dir=_subagent_output_dir_for_call(retry_call, repo_root=repo_root),
+                        errors=[retry_error_class, *([str(retry_call["error"])] if retry_call.get("error") else [])],
+                        error_class=retry_error_class,
+                        error=str(retry_call.get("error") or ""),
+                    )
+                    continue
+                retry_output_dir = _subagent_output_dir_for_call(retry_call, repo_root=repo_root)
+                if retry_output_dir is None:
+                    final_outputs[candidate_id] = _subagent_error_output_state(
+                        call=retry_call,
+                        candidate_id=candidate_id,
+                        agent_call_id=str(retry_call["agent_call_id"]),
+                        output_dir=None,
+                        errors=["agent_output_path_missing"],
+                    )
+                    continue
                 retry_parsed = parse_subagent_output(
-                    Path(str(retry_call["output_dir"])),
+                    retry_output_dir,
                     candidate_id,
                     agent_call_id=str(retry_call["agent_call_id"]),
                 ).to_state()
@@ -530,48 +853,63 @@ def spawn_prime_agents_node(state: GraphState) -> GraphState:
             )
             continue
         context_path = run_dir / "prime_contexts" / prime_call_id
-        context_path.mkdir(parents=True, exist_ok=True)
-        (context_path / "context.md").write_text(
-            "# Prime Agent Context\n\n"
-            f"candidate_id: {request['candidate_id']}\n"
-            f"prime_role: {prime_role}\n\n"
-            f"{request['prompt']}\n",
-            encoding="utf-8",
-        )
         call = AgentCall(
             role=prime_role,
             context_path=context_path,
             output_dir=output_dir,
             timeout_seconds=_timeout_for_role(config, prime_role, "prime"),
+            agent_call_id=prime_call_id,
         )
         try:
-            result = AgentRunner().run(call)
-            status = "completed" if result.exit_code == 0 else "error"
-            prime_calls.append(
-                {
-                    **request,
-                    "prime_call_id": prime_call_id,
-                    "output_dir": str(output_dir),
-                    "context_path": str(context_path),
-                    "exit_code": result.exit_code,
-                    "stdout_path": str(result.stdout_path),
-                    "stderr_path": str(result.stderr_path),
-                    "status": status,
-                    "errors": [] if status == "completed" else ["prime_agent_exit_nonzero"],
-                }
+            context_path.mkdir(parents=True, exist_ok=True)
+            (context_path / "context.md").write_text(
+                "# Prime Agent Context\n\n"
+                f"candidate_id: {request['candidate_id']}\n"
+                f"prime_role: {prime_role}\n\n"
+                f"{request['prompt']}\n",
+                encoding="utf-8",
             )
-        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            result = _agent_runner_for_config(config).run(call)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            result = _write_agent_exception_result(call, exc, command=_agent_exception_command_for_config(config, call))
+        except ValueError as exc:
             prime_calls.append(
                 {
                     **request,
                     "prime_call_id": prime_call_id,
                     "output_dir": str(output_dir),
                     "context_path": str(context_path),
+                    "log_dir": str(output_dir),
                     "exit_code": 1,
                     "stdout_path": "",
                     "stderr_path": "",
                     "status": "error",
                     "errors": [f"prime_agent_error: {exc}"],
+                }
+            )
+            tracker.finish(parent_id, prime_role)
+            continue
+        try:
+            result_fields = _agent_run_result_fields(result)
+            status = "completed" if result.exit_code == 0 and result.status == "completed" else "error"
+            result_fields["status"] = status
+            if status == "completed":
+                errors = []
+            elif result.error_class in AGENT_EXECUTION_ERROR_CLASSES:
+                errors = [result.error_class]
+            elif result.error_class:
+                errors = [result.error_class]
+            else:
+                errors = ["prime_agent_exit_nonzero"]
+            prime_calls.append(
+                {
+                    **request,
+                    "prime_call_id": prime_call_id,
+                    "output_dir": str(output_dir),
+                    "context_path": str(context_path),
+                    "log_dir": str(output_dir),
+                    **result_fields,
+                    "errors": errors,
                 }
             )
         finally:
@@ -619,14 +957,14 @@ def assemble_candidate_proposals_node(state: GraphState) -> GraphState:
         return _record_error(next_state, "assemble_candidate_proposals", "missing batch_assignments")
 
     assembler = CandidateAssembler(paths=paths, repo_root=_repo_root(next_state), config=config)
-    valid_outputs = {
+    subagent_outputs = {
         str(item["candidate_id"]): item
         for item in next_state.get("subagent_outputs", [])
-        if item.get("valid")
+        if item.get("candidate_id")
     }
     artifacts = []
     for assignment in next_state["batch_assignments"]:
-        result = assembler.assemble(assignment, valid_outputs.get(str(assignment["candidate_id"])))
+        result = assembler.assemble(assignment, subagent_outputs.get(str(assignment["candidate_id"])))
         artifacts.append(result.to_state())
     return {**next_state, "candidate_artifacts": artifacts}
 
@@ -654,7 +992,7 @@ def deterministic_review_node(state: GraphState) -> GraphState:
         return _record_error(next_state, "deterministic_review", f"invalid DUT config; skipped review: {exc}")
 
     reviewer = DeterministicReviewer(
-        allowed_files={dut_netlist, devices_csv, Path(dut_netlist).name, Path(devices_csv).name},
+        allowed_files={dut_netlist, devices_csv},
         dut_subckt=dut_subckt,
         dut_pins_order=dut_pins_order,
     )
@@ -711,8 +1049,29 @@ def verify_queue_node(state: GraphState) -> GraphState:
         result_name="review_results",
         errors=errors,
     )
-    candidate_ids = [candidate_id for candidate_id in _candidate_id_list(next_state) if review_results.get(candidate_id, {}).get("passed")]
-    if not _candidate_id_list(next_state):
+    all_candidate_ids = _candidate_id_list(next_state)
+    candidate_ids = []
+    for candidate_id in all_candidate_ids:
+        review = _artifact_result_for_candidate(
+            paths=paths,
+            candidate_id=candidate_id,
+            filename="review.json",
+            model=ReviewResult,
+            errors=errors,
+            node_name="verify_queue",
+        )
+        if review is None:
+            review = review_results.get(candidate_id)
+        if review is not None and review.get("passed"):
+            candidate_ids.append(candidate_id)
+    consumed_rerun_decision = False
+    top_decision = next_state.get("top_decision") or {}
+    if isinstance(top_decision, dict) and top_decision.get("decision") == "rerun_verification":
+        selected_ids = [candidate_id for candidate_id in top_decision.get("candidate_ids", []) if isinstance(candidate_id, str)]
+        selected_set = set(selected_ids)
+        candidate_ids = [candidate_id for candidate_id in candidate_ids if candidate_id in selected_set]
+        consumed_rerun_decision = True
+    if not all_candidate_ids:
         return _record_error(next_state, "verify_queue", "missing candidate_ids; skipped verifier queue")
     verifier_config = config.get("verifier")
     if not isinstance(verifier_config, dict):
@@ -735,13 +1094,41 @@ def verify_queue_node(state: GraphState) -> GraphState:
             )
             verification_results.append(result.model_dump(mode="json"))
         except (OSError, ValueError, ValidationError) as exc:
+            message = f"verifier_exception: {exc}"
             errors.append(f"verify_queue: verifier failed for {candidate_id}: {exc}")
-    return {
+            result = _write_verification_error_result(candidate_id, paths.candidate_dir(candidate_id), message)
+            verification_results.append(result.model_dump(mode="json"))
+    result_state = {
         **next_state,
         "verification_queue": candidate_ids,
         "verification_results": verification_results,
         "errors": errors,
     }
+    if consumed_rerun_decision:
+        result_state["top_decision"] = {}
+        result_state["route"] = "next_batch"
+    return result_state
+
+
+def _verification_error_payload(candidate_id: str, candidate_dir: Path, message: str) -> dict[str, Any]:
+    return {
+        "candidate_id": candidate_id,
+        "status": "error",
+        "metrics_path": str(candidate_dir / "ppa_metrics.json"),
+        "report_path": str(candidate_dir / "ppa_report.log"),
+        "spectre_logs": [],
+        "performance_nrmse_combined": 1.0,
+        "area_total_p": 0.0,
+        "power_score_basis_w": 0.0,
+        "errors": [message],
+    }
+
+
+def _write_verification_error_result(candidate_id: str, candidate_dir: Path, message: str) -> VerificationResult:
+    result = VerificationResult.model_validate(_verification_error_payload(candidate_id, candidate_dir, message))
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    (candidate_dir / "verification.json").write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return result
 
 
 def evaluate_candidates_node(state: GraphState) -> GraphState:
@@ -776,8 +1163,24 @@ def evaluate_candidates_node(state: GraphState) -> GraphState:
     paths = _artifact_paths(next_state)
     evaluations = []
     for candidate_id in candidate_ids:
-        review = review_results.get(candidate_id)
-        verification = verification_results.get(candidate_id)
+        review = _artifact_result_for_candidate(
+            paths=paths,
+            candidate_id=candidate_id,
+            filename="review.json",
+            model=ReviewResult,
+            errors=errors,
+        )
+        if review is None:
+            review = review_results.get(candidate_id)
+        verification = _artifact_result_for_candidate(
+            paths=paths,
+            candidate_id=candidate_id,
+            filename="verification.json",
+            model=VerificationResult,
+            errors=errors,
+        )
+        if verification is None:
+            verification = verification_results.get(candidate_id)
         if review is None:
             evaluation = {
                 "candidate_id": candidate_id,
@@ -929,17 +1332,74 @@ def top_anomaly_check_node(state: GraphState) -> GraphState:
     run_dir = paths.run_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     errors = list(next_state.get("errors", []))
+    execution_failure_candidate_ids = _all_agent_execution_failure_candidate_ids(next_state)
+    missing_output_candidate_ids = _all_missing_subagent_output_candidate_ids(next_state)
+    verifier_failure_candidate_ids = _all_verifier_infrastructure_failure_candidate_ids(next_state)
 
     pending_interrupt = run_dir / "human_interrupt.json"
-    if next_state.get("human_response") is not None:
+    if execution_failure_candidate_ids:
+        reason = "all candidates failed agent execution"
+        _write_agent_execution_batch_error(paths, run_id, next_state, execution_failure_candidate_ids, reason)
+        decision = TopDecision.model_validate(
+            {
+                "decision": "stop",
+                "reason": reason,
+                "anomaly_level": "critical",
+                "candidate_ids": execution_failure_candidate_ids,
+                "next_batch_strategy": "Stop until Codex CLI launch is fixed.",
+                "human_interrupt": {
+                    "required": False,
+                    "question": None,
+                    "recommended_action": None,
+                    "evidence_paths": [],
+                },
+            }
+        )
+    elif missing_output_candidate_ids:
+        reason = "all candidates failed assembly: missing_valid_subagent_output"
+        _write_missing_output_batch_error(paths, run_id, next_state, missing_output_candidate_ids, reason)
+        decision = TopDecision.model_validate(
+            {
+                "decision": "stop",
+                "reason": reason,
+                "anomaly_level": "critical",
+                "candidate_ids": missing_output_candidate_ids,
+                "next_batch_strategy": "Stop until subagent output generation is fixed.",
+                "human_interrupt": {
+                    "required": False,
+                    "question": None,
+                    "recommended_action": None,
+                    "evidence_paths": [],
+                },
+            }
+        )
+    elif verifier_failure_candidate_ids:
+        reason = "all candidates failed verifier infrastructure"
+        _write_verifier_infrastructure_batch_error(paths, run_id, next_state, verifier_failure_candidate_ids, reason)
+        decision = TopDecision.model_validate(
+            {
+                "decision": "stop",
+                "reason": reason,
+                "anomaly_level": "critical",
+                "candidate_ids": verifier_failure_candidate_ids,
+                "next_batch_strategy": "Stop until verifier infrastructure is fixed.",
+                "human_interrupt": {
+                    "required": False,
+                    "question": None,
+                    "recommended_action": None,
+                    "evidence_paths": [],
+                },
+            }
+        )
+    elif next_state.get("human_response") is not None:
         if pending_interrupt.exists():
             payload = json.loads(pending_interrupt.read_text(encoding="utf-8"))
             payload["human_response"] = next_state["human_response"]
             pending_interrupt.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            decision = _default_top_decision("continue", "Human response received; continuing bounded workflow.")
+            decision = _default_top_decision("continue", "Human response received; continuing counted workflow.")
         else:
             errors.append("top_anomaly_check: human_response_without_pending_interrupt")
-            decision = _default_top_decision("continue", "No pending interrupt exists; continuing bounded workflow.")
+            decision = _default_top_decision("continue", "No pending interrupt exists; continuing counted workflow.")
     elif next_state.get("top_decision"):
         try:
             decision = TopDecision.model_validate(next_state["top_decision"])
@@ -972,7 +1432,7 @@ def _default_top_decision(decision: str, reason: str) -> TopDecision:
             "reason": reason,
             "anomaly_level": "none",
             "candidate_ids": [],
-            "next_batch_strategy": "Continue bounded workflow.",
+            "next_batch_strategy": "Continue counted workflow.",
             "human_interrupt": {
                 "required": decision == "human_interrupt",
                 "question": None,
@@ -981,6 +1441,303 @@ def _default_top_decision(decision: str, reason: str) -> TopDecision:
             },
         }
     )
+
+
+def _all_missing_subagent_output_candidate_ids(state: GraphState) -> list[str]:
+    candidate_ids = _candidate_id_list(state)
+    if not candidate_ids:
+        return []
+    assembly_results = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_artifacts", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    if all(candidate_id in assembly_results for candidate_id in candidate_ids):
+        missing = []
+        for candidate_id in candidate_ids:
+            if not _assembly_result_is_agent_output_missing(assembly_results[candidate_id]):
+                return []
+            missing.append(candidate_id)
+        return missing
+
+    return []
+
+
+def _all_verifier_infrastructure_failure_candidate_ids(state: GraphState) -> list[str]:
+    candidate_ids = _candidate_id_list(state)
+    if not candidate_ids:
+        return []
+    evaluations = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_evaluations", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    if not all(candidate_id in evaluations for candidate_id in candidate_ids):
+        return []
+    failed = []
+    for candidate_id in candidate_ids:
+        evaluation = evaluations[candidate_id]
+        if evaluation.get("status") != "error":
+            return []
+        if not _is_verifier_infrastructure_failure_reason(str(evaluation.get("reason") or "")):
+            return []
+        failed.append(candidate_id)
+    return failed
+
+
+def _is_verifier_infrastructure_failure_reason(reason: str) -> bool:
+    normalized = reason.strip().lower()
+    if normalized == "missing verification.json":
+        return True
+    return normalized.startswith(
+        (
+            "verifier command exited with status ",
+            "verifier command timed out ",
+            "missing required output: ",
+            "required output not updated by current run: ",
+            "verifier_exception: ",
+        )
+    )
+
+
+def _all_agent_execution_failure_candidate_ids(state: GraphState) -> list[str]:
+    candidate_ids = _candidate_id_list(state)
+    if not candidate_ids:
+        return []
+    assembly_results = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_artifacts", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    if not all(candidate_id in assembly_results for candidate_id in candidate_ids):
+        return []
+    failed = []
+    for candidate_id in candidate_ids:
+        if _assembly_result_agent_execution_error_class(assembly_results[candidate_id]) is None:
+            return []
+        failed.append(candidate_id)
+    return failed
+
+
+def _assembly_result_agent_execution_error_class(assembly: dict[str, Any]) -> str | None:
+    error_class = str(assembly.get("error_class") or "")
+    if error_class in AGENT_EXECUTION_ERROR_CLASSES:
+        return error_class
+    reason = str(assembly.get("reason") or "")
+    if reason in AGENT_EXECUTION_ERROR_CLASSES:
+        return reason
+    errors = assembly.get("errors", [])
+    if isinstance(errors, list):
+        for error in errors:
+            value = str(error)
+            if value in AGENT_EXECUTION_ERROR_CLASSES:
+                return value
+    return None
+
+
+def _assembly_result_is_agent_output_missing(assembly: dict[str, Any]) -> bool:
+    if assembly.get("error_class") == "agent_output_missing":
+        return True
+    if assembly.get("reason") == "agent_output_missing":
+        return True
+    errors = assembly.get("errors", [])
+    return isinstance(errors, list) and "missing_valid_subagent_output" in errors
+
+
+def _write_agent_execution_batch_error(
+    paths: ArtifactPaths,
+    run_id: str,
+    state: GraphState,
+    candidate_ids: list[str],
+    reason: str,
+) -> None:
+    run_dir = paths.run_dir(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    calls_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    for call in state.get("agent_calls", []):
+        if isinstance(call, dict) and call.get("candidate_id"):
+            calls_by_candidate.setdefault(str(call["candidate_id"]), []).append(call)
+    assembly_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_artifacts", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+
+    candidates = []
+    for candidate_id in candidate_ids:
+        calls = calls_by_candidate.get(candidate_id, [])
+        context_paths = [str(call.get("context_path") or "") for call in calls if call.get("context_path")]
+        output_paths = []
+        for call in calls:
+            output_path = _subagent_output_dir_for_call(call, repo_root=_repo_root(state))
+            if output_path is not None:
+                output_paths.append(str(output_path))
+        log_paths = []
+        for call in calls:
+            for key in ("stdout_path", "stderr_path", "agent_run_path"):
+                if call.get(key):
+                    log_paths.append(str(call[key]))
+        assembly = assembly_by_candidate.get(candidate_id, {})
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "error_class": _assembly_result_agent_execution_error_class(assembly) or "agent_execution_failed",
+                "context_paths": context_paths,
+                "output_paths": output_paths,
+                "log_paths": log_paths,
+            }
+        )
+
+    payload = {
+        "error_class": "batch_agent_execution_failure",
+        "reason": reason,
+        "candidate_ids": candidate_ids,
+        "candidates": candidates,
+    }
+    (run_dir / "batch_error.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_missing_output_batch_error(
+    paths: ArtifactPaths,
+    run_id: str,
+    state: GraphState,
+    candidate_ids: list[str],
+    reason: str,
+) -> None:
+    run_dir = paths.run_dir(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    calls_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    for call in state.get("agent_calls", []):
+        if isinstance(call, dict) and call.get("candidate_id"):
+            calls_by_candidate.setdefault(str(call["candidate_id"]), []).append(call)
+    outputs_by_candidate: dict[str, list[dict[str, Any]]] = {}
+    for output in state.get("subagent_outputs", []):
+        if isinstance(output, dict) and output.get("candidate_id"):
+            outputs_by_candidate.setdefault(str(output["candidate_id"]), []).append(output)
+    assembly_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_artifacts", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    review_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in state.get("review_results", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+
+    candidates = []
+    for candidate_id in candidate_ids:
+        calls = calls_by_candidate.get(candidate_id, [])
+        context_paths = [str(call.get("context_path") or "") for call in calls if call.get("context_path")]
+        output_paths = []
+        for call in calls:
+            output_path = _subagent_output_dir_for_call(call, repo_root=_repo_root(state))
+            if output_path is not None:
+                output_paths.append(str(output_path))
+        validation_errors: list[str] = []
+        for context_path in context_paths:
+            validation_errors.extend(_read_validation_errors(Path(context_path) / "validation_errors.json"))
+        for output in outputs_by_candidate.get(candidate_id, []):
+            validation_errors.extend(str(error) for error in output.get("errors", []))
+        assembly = assembly_by_candidate.get(candidate_id, {})
+        review = review_by_candidate.get(candidate_id, {})
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "agent_call_ids": [str(call.get("agent_call_id") or "") for call in calls if call.get("agent_call_id")],
+                "context_paths": context_paths,
+                "output_paths": output_paths,
+                "output_path": output_paths[-1] if output_paths else str(paths.run_dir(run_id) / "agent_calls" / candidate_id / "output"),
+                "validation_errors": sorted(set(validation_errors)),
+                "assembly_path": str(paths.candidate_dir(candidate_id) / "assembly.json"),
+                "assembly_errors": list(assembly.get("errors", [])) if isinstance(assembly, dict) else [],
+                "review_path": str(paths.candidate_dir(candidate_id) / "review.json"),
+                "review_errors": list(review.get("errors", [])) if isinstance(review, dict) else [],
+            }
+        )
+
+    payload = {
+        "error_class": "batch_agent_output_failure",
+        "reason": reason,
+        "candidate_ids": candidate_ids,
+        "candidates": candidates,
+    }
+    (run_dir / "batch_error.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_verifier_infrastructure_batch_error(
+    paths: ArtifactPaths,
+    run_id: str,
+    state: GraphState,
+    candidate_ids: list[str],
+    reason: str,
+) -> None:
+    run_dir = paths.run_dir(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    evaluations_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in state.get("candidate_evaluations", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+    verification_by_candidate = {
+        str(item.get("candidate_id")): item
+        for item in state.get("verification_results", [])
+        if isinstance(item, dict) and item.get("candidate_id")
+    }
+
+    candidates = []
+    for candidate_id in candidate_ids:
+        candidate_dir = paths.candidate_dir(candidate_id)
+        verification = verification_by_candidate.get(candidate_id, {})
+        verifier_errors = [str(error) for error in verification.get("errors", [])] if isinstance(verification, dict) else []
+        artifact_paths = [
+            str(candidate_dir / "verification.json"),
+            str(candidate_dir / "verdict.json"),
+        ]
+        if isinstance(verification, dict):
+            for key in ("metrics_path", "report_path"):
+                if verification.get(key):
+                    artifact_paths.append(str(verification[key]))
+        log_paths = [
+            str(candidate_dir / STDOUT_LOG),
+            str(candidate_dir / STDERR_LOG),
+        ]
+        if isinstance(verification, dict) and isinstance(verification.get("spectre_logs"), list):
+            log_paths.extend(str(path) for path in verification["spectre_logs"])
+        evaluation = evaluations_by_candidate.get(candidate_id, {})
+        verifier_reason = str(evaluation.get("reason") or "; ".join(verifier_errors) or "verifier_infrastructure_failure")
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "error_class": "verifier_infrastructure_failure",
+                "verifier_reason": verifier_reason,
+                "artifact_dir": str(candidate_dir),
+                "workspace_dir": str(paths.workspace_dir(candidate_id)),
+                "artifact_paths": list(dict.fromkeys(path for path in artifact_paths if path)),
+                "log_paths": list(dict.fromkeys(path for path in log_paths if path)),
+                "verifier_errors": verifier_errors,
+            }
+        )
+
+    payload = {
+        "error_class": "batch_verifier_infrastructure_failure",
+        "reason": reason,
+        "candidate_ids": candidate_ids,
+        "candidates": candidates,
+    }
+    (run_dir / "batch_error.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_validation_errors(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw]
 
 
 def _write_verdict(paths: ArtifactPaths | None, candidate_id: str, evaluation: dict[str, Any], errors: list[str]) -> None:
@@ -1000,6 +1757,8 @@ def _status_from_review_errors(review_errors: Any) -> str:
         "missing_required_artifact",
         "proposal_schema_invalid",
         "workspace_netlist_missing",
+        "assembly_failed",
+        "missing_valid_subagent_output",
     }
     if any(str(error).startswith("deterministic_review_error") for error in errors):
         return "error"
@@ -1124,7 +1883,7 @@ def _update_runner_state_after_batch(
     state: GraphState,
 ) -> None:
     runner_state.batch_no += 1
-    verified_count = sum(1 for item in evaluations if item.get("metrics"))
+    verified_count = sum(1 for item in evaluations if item.get("status") != "error" and item.get("metrics"))
     if runner_state.current_phase == Phase.PHASE1_PERFORMANCE:
         runner_state.three_bjt_verified_count += verified_count
     elif runner_state.current_phase == Phase.PHASE2A_AREA:
@@ -1187,9 +1946,32 @@ def _route_next(state: GraphState) -> GraphState:
     elif route not in {"stop", "next_batch", "human_interrupt", "rerun_verification"}:
         next_state = _record_error(next_state, "route_next", f"invalid route {route!r}; stopping")
         route = "stop"
-    elif route == "next_batch" and next_state.get("stop_after_current_pass"):
+    elif route == "next_batch" and _has_counted_run(next_state) and _has_record_batch_error(next_state):
         route = "stop"
+    elif route == "next_batch":
+        if "counted_run_remaining" in next_state or "counted_run_total" in next_state:
+            try:
+                remaining = int(next_state.get("counted_run_remaining", next_state.get("counted_run_total", 0)))
+            except (TypeError, ValueError):
+                next_state = _record_error(next_state, "route_next", "invalid counted_run_remaining; stopping")
+                route = "stop"
+            else:
+                if remaining <= 1:
+                    next_state = {**next_state, "counted_run_remaining": 0}
+                    route = "stop"
+                else:
+                    next_state = {**next_state, "counted_run_remaining": remaining - 1}
+        elif next_state.get("stop_after_current_pass"):
+            route = "stop"
     return {**next_state, "route": route}
+
+
+def _has_record_batch_error(state: GraphState) -> bool:
+    return any(str(error).startswith("record_batch:") for error in state.get("errors", []))
+
+
+def _has_counted_run(state: GraphState) -> bool:
+    return "counted_run_remaining" in state or "counted_run_total" in state
 
 
 def _route_condition(state: GraphState) -> str:

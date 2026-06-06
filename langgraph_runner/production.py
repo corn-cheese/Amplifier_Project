@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from .artifacts import ArtifactPaths
 from .config import RunnerConfig, load_runner_config
+from .codex_cli import resolve_codex_command
 from .graph import build_graph
 from .review import ALLOWED_DEVICE_TYPES, FORBIDDEN_SHORTCUT_PATTERNS
 from .state_store import StateStore
@@ -196,7 +197,7 @@ def run_production_canary(
                 cwd=repo_root,
             ),
         )
-        _require_command_success(checks, "codex_exec_help", runner(["codex", "exec", "--help"], cwd=repo_root))
+        _require_command_success(checks, "codex_exec_help", runner([*resolve_codex_command(), "exec", "--help"], cwd=repo_root))
         _check_eda_smoke(
             repo_root=repo_root,
             config=config,
@@ -222,6 +223,8 @@ def run_production_canary(
             "artifact_root": str(paths.artifact_root),
             "backup_dir": str(backup_dir),
             "run_id": run_id,
+            "counted_run_total": 1,
+            "counted_run_remaining": 1,
             "checks": checks,
         }
         (run_dir / "production_run_start.json").write_text(json.dumps(start_note, indent=2) + "\n", encoding="utf-8")
@@ -231,15 +234,26 @@ def run_production_canary(
             "run_id": run_id,
             "config_path": str(config_path),
             "state_path": str(paths.state_json),
-            "route": "stop",
+            "route": "next_batch",
+            "counted_run_total": 1,
+            "counted_run_remaining": 1,
         }
         graph_state = graph_factory().invoke(initial_state, config={"recursion_limit": 20})
 
         summary_path = run_dir / "production_run_summary.json"
+        graph_summary = _graph_summary(graph_state)
         summary = {
-            **start_note,
+            "production_spec": start_note["production_spec"],
+            "config_path": start_note["config_path"],
+            "artifact_root": start_note["artifact_root"],
+            "backup_dir": start_note["backup_dir"],
+            "run_id": start_note["run_id"],
+            "initial_counted_run_total": start_note["counted_run_total"],
+            "initial_counted_run_remaining": start_note["counted_run_remaining"],
+            "final_counted_run_remaining": graph_summary["counted_run_remaining"],
+            "checks": checks,
             "summary_path": str(summary_path),
-            "graph": _graph_summary(graph_state),
+            "graph": graph_summary,
         }
         summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         return ProductionRunResult(
@@ -301,12 +315,15 @@ def _check_contract(repo_root: Path, config: RunnerConfig, checks: dict[str, dic
             "details": f"DUT pin order mismatch for {dut_subckt}: expected {dut_pins}, got {actual_pins}",
         }
         raise ProductionRunError("contract preflight failed", checks)
-    if not _devices_csv_is_valid(devices_csv):
+    baseline_violations = _baseline_contract_violations(dut_netlist, devices_csv)
+    if baseline_violations:
         checks["contract"] = {
             "status": "failed",
-            "details": f"invalid devices.csv at {devices_csv}",
+            "class": "baseline_contract_violation",
+            "invariant": str(baseline_violations[0]["invariant"]),
+            "details": _format_baseline_violations(baseline_violations),
         }
-        raise ProductionRunError("contract preflight failed", checks)
+        raise ProductionRunError("baseline_contract_violation: contract preflight failed", checks)
 
     checks["contract"] = {
         "status": "passed",
@@ -353,7 +370,10 @@ def _record_command_check(
     accepted_status: str = "passed",
 ) -> None:
     status = accepted_status if result.returncode == 0 else "failed"
-    checks[name] = {"status": status, "details": _command_details(result)}
+    check = {"status": status, "details": _command_details(result)}
+    if status == "failed":
+        check["class"] = "operator_command_error"
+    checks[name] = check
 
 
 def _require_command_success(checks: dict[str, dict[str, str]], name: str, result: CommandResult) -> None:
@@ -442,6 +462,9 @@ def _write_failure(
         "error": error,
         "checks": checks,
     }
+    error_class = _failure_class_from_checks(checks)
+    if error_class is not None:
+        payload["error_class"] = error_class
     failure_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return failure_path
 
@@ -506,22 +529,97 @@ def _find_subckt_pins(dut_netlist: Path, dut_subckt: str) -> list[str] | None:
     return None
 
 
-def _devices_csv_is_valid(path: Path) -> bool:
+def _baseline_contract_violations(dut_netlist: Path, devices_csv: Path) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    shortcut_invariant = (
+        "baseline must not contain OPAMP, OPAMP-equivalent, behavioral amplifier, "
+        "ideal gain block, or controlled-source amplifier shortcuts"
+    )
+    try:
+        for line_number, line in enumerate(dut_netlist.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+            for pattern in FORBIDDEN_SHORTCUT_PATTERNS:
+                if pattern.search(line):
+                    violations.append(
+                        {
+                            "invariant": shortcut_invariant,
+                            "file": str(dut_netlist),
+                            "line": line_number,
+                            "pattern": pattern.pattern,
+                            "text": line.strip(),
+                        }
+                    )
+                    break
+    except OSError as exc:
+        violations.append(
+            {
+                "invariant": "baseline DUT netlist must be readable",
+                "file": str(dut_netlist),
+                "details": str(exc),
+            }
+        )
+
     required = {"name", "type", "count", "include_in_ppa"}
     try:
-        with path.open(newline="", encoding="utf-8") as handle:
+        with devices_csv.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             if reader.fieldnames is None or not required.issubset(set(reader.fieldnames)):
-                return False
-            for row in reader:
+                violations.append(
+                    {
+                        "invariant": "devices.csv baseline accounting must include name, type, count, and include_in_ppa",
+                        "file": str(devices_csv),
+                        "details": f"fieldnames={reader.fieldnames}",
+                    }
+                )
+                return violations
+            for row_number, row in enumerate(reader, start=2):
                 row_text = " ".join(str(value) for value in row.values() if value is not None)
-                if any(pattern.search(row_text) for pattern in FORBIDDEN_SHORTCUT_PATTERNS):
-                    return False
-                if str(row.get("type") or "").strip().lower() not in ALLOWED_DEVICE_TYPES:
-                    return False
-    except (OSError, csv.Error):
-        return False
-    return True
+                forbidden_pattern = next((pattern for pattern in FORBIDDEN_SHORTCUT_PATTERNS if pattern.search(row_text)), None)
+                if forbidden_pattern is not None:
+                    violations.append(
+                        {
+                            "invariant": shortcut_invariant,
+                            "file": str(devices_csv),
+                            "row": row_number,
+                            "pattern": forbidden_pattern.pattern,
+                            "text": row_text,
+                        }
+                    )
+                    continue
+                device_type = str(row.get("type") or "").strip().lower()
+                if device_type not in ALLOWED_DEVICE_TYPES:
+                    violations.append(
+                        {
+                            "invariant": "devices.csv baseline accounting must use allowed primitive device classes only",
+                            "file": str(devices_csv),
+                            "row": row_number,
+                            "pattern": device_type,
+                            "text": row_text,
+                        }
+                    )
+    except (OSError, csv.Error) as exc:
+        violations.append(
+            {
+                "invariant": "devices.csv baseline accounting must be readable and valid CSV",
+                "file": str(devices_csv),
+                "details": str(exc),
+            }
+        )
+    return violations
+
+
+def _format_baseline_violations(violations: list[dict[str, Any]]) -> str:
+    details = []
+    for violation in violations:
+        location = str(violation.get("file") or "")
+        if violation.get("row") is not None:
+            location += f" row {violation['row']}"
+        elif violation.get("line") is not None:
+            location += f" line {violation['line']}"
+        pattern = violation.get("pattern")
+        pattern_text = f"; pattern={pattern}" if pattern else ""
+        text = violation.get("text") or violation.get("details") or ""
+        details.append(f"{location}: {violation.get('invariant')}{pattern_text}; {text}")
+    return "; ".join(details)
 
 
 def _ensure_no_links(path: Path) -> None:
@@ -547,6 +645,8 @@ def _graph_summary(graph_state: dict[str, Any]) -> dict[str, Any]:
         "candidate_evaluations": graph_state.get("candidate_evaluations", []),
         "promoted_candidate_id": graph_state.get("promoted_candidate_id"),
         "errors": graph_state.get("errors", []),
+        "counted_run_total": graph_state.get("counted_run_total"),
+        "counted_run_remaining": graph_state.get("counted_run_remaining"),
     }
 
 
@@ -558,6 +658,13 @@ def _command_details(result: CommandResult) -> str:
         "stderr": _truncate(result.stderr),
     }
     return json.dumps(details, sort_keys=True)
+
+
+def _failure_class_from_checks(checks: dict[str, dict[str, str]]) -> str | None:
+    for check in checks.values():
+        if check.get("status") == "failed" and check.get("class"):
+            return check["class"]
+    return None
 
 
 def _command_text(command) -> str:

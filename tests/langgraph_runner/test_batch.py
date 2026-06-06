@@ -26,7 +26,7 @@ class TestBatchPlanning(unittest.TestCase):
         self.assertEqual(len(assignments), 3)
         self.assertEqual(len({item.candidate_id for item in assignments}), 3)
         self.assertTrue(all(re.match(r"p1-b001-c0[1-3]-", item.candidate_id) for item in assignments))
-        self.assertEqual([item.role for item in assignments], ["architecture", "architecture", "optimizer"])
+        self.assertEqual([item.role for item in assignments], ["diagnosis", "architecture", "optimizer"])
 
 
 if __name__ == "__main__":

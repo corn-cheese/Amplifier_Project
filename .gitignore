@@ -1,5 +1,7 @@
 .test_tmp_langgraph_runner/
 tests/tmp*/
 automation_artifacts/
+.codex_home/
+.codex_tmp/
 __pycache__/
 *.py[cod]

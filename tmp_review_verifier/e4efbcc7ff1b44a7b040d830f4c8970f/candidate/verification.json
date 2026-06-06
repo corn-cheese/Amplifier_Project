@@ -1,0 +1,11 @@
+{
+  "candidate_id": "cid",
+  "status": "passed",
+  "metrics_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\e4efbcc7ff1b44a7b040d830f4c8970f\\candidate\\ppa_metrics.json",
+  "report_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\e4efbcc7ff1b44a7b040d830f4c8970f\\candidate\\ppa_report.log",
+  "spectre_logs": [],
+  "performance_nrmse_combined": 1.0,
+  "area_total_p": 1.0,
+  "power_score_basis_w": 2.0,
+  "errors": []
+}

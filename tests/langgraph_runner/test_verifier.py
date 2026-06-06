@@ -44,6 +44,234 @@ def valid_verification_command() -> str:
 
 
 class TestVerifier(unittest.TestCase):
+    def test_normalizes_ppa_wrapper_run_outputs_and_synthesizes_verification_json(self):
+        root = scratch_case("normalizes_ppa_wrapper_run_outputs")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        metrics = {
+            "performance_nrmse_combined": 0.125,
+            "area_power": {
+                "area_total_p": 45.0,
+                "power_score_basis_w": 0.003,
+            },
+        }
+        command = python_command(
+            "from pathlib import Path; import json; "
+            f"run = Path(r'{run_dir}'); "
+            "run.mkdir(parents=True, exist_ok=True); "
+            "metrics = dict(performance_nrmse_combined=0.125, "
+            "area_power=dict(area_total_p=45.0, power_score_basis_w=0.003)); "
+            "(run / 'ppa_metrics.json').write_text(json.dumps(metrics), encoding='utf-8'); "
+            "(run / 'ppa_report.log').write_text('ppa passed\\n', encoding='utf-8')"
+        )
+        verifier = Verifier(
+            command=command,
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=["verification.json", "ppa_metrics.json", "ppa_report.log"],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "passed", result.errors)
+        self.assertEqual(result.performance_nrmse_combined, 0.125)
+        self.assertEqual(result.area_total_p, 45.0)
+        self.assertEqual(result.power_score_basis_w, 0.003)
+        self.assertTrue((candidate_dir / "ppa_metrics.json").exists())
+        self.assertTrue((candidate_dir / "ppa_report.log").exists())
+        self.assertTrue((candidate_dir / "verification.json").exists())
+        self.assertEqual(json.loads((candidate_dir / "ppa_metrics.json").read_text(encoding="utf-8")), metrics)
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(written.status, "passed")
+        self.assertEqual(written.spectre_logs, [])
+
+    def test_ppa_wrapper_run_outputs_with_missing_required_metric_return_error(self):
+        root = scratch_case("ppa_wrapper_run_outputs_missing_required_metric")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        metrics = {
+            "performance_nrmse_combined": None,
+            "area_power": {
+                "area_total_p": 1443.1374,
+                "power_score_basis_w": 0.0,
+            },
+        }
+        command = python_command(
+            "from pathlib import Path; import json; "
+            f"run = Path(r'{run_dir}'); "
+            "run.mkdir(parents=True, exist_ok=True); "
+            "metrics = dict(performance_nrmse_combined=None, "
+            "area_power=dict(area_total_p=1443.1374, power_score_basis_w=0.0)); "
+            "(run / 'ppa_metrics.json').write_text(json.dumps(metrics), encoding='utf-8'); "
+            "(run / 'ppa_report.log').write_text('ppa failed\\n', encoding='utf-8')"
+        )
+        verifier = Verifier(
+            command=command,
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=[
+                "verification.json",
+                "ppa_metrics.json",
+                "ppa_report.log",
+                "spectre_ac.log",
+                "spectre_tran.log",
+            ],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "error")
+        self.assertTrue(result.errors)
+        self.assertIn("invalid ppa_metrics.json", result.errors[0])
+        self.assertIn("performance_nrmse_combined", result.errors[0])
+        self.assertNotEqual(result.performance_nrmse_combined, 1.0)
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(written.status, "error")
+        self.assertTrue(written.errors)
+        self.assertIn("invalid ppa_metrics.json", written.errors[0])
+        self.assertIn("performance_nrmse_combined", written.errors[0])
+        self.assertNotEqual(written.performance_nrmse_combined, 1.0)
+
+    def test_ppa_wrapper_run_outputs_with_boolean_performance_metric_return_error(self):
+        root = scratch_case("ppa_wrapper_run_outputs_boolean_performance_metric")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        command = python_command(
+            "from pathlib import Path; import json; "
+            f"run = Path(r'{run_dir}'); "
+            "run.mkdir(parents=True, exist_ok=True); "
+            "metrics = dict(performance_nrmse_combined=True, "
+            "area_power=dict(area_total_p=1443.1374, power_score_basis_w=0.0)); "
+            "(run / 'ppa_metrics.json').write_text(json.dumps(metrics), encoding='utf-8'); "
+            "(run / 'ppa_report.log').write_text('ppa failed\\n', encoding='utf-8')"
+        )
+        verifier = Verifier(
+            command=command,
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=["verification.json", "ppa_metrics.json", "ppa_report.log"],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "error")
+        self.assertTrue(result.errors)
+        self.assertIn("performance_nrmse_combined", result.errors[0])
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(written.status, "error")
+        self.assertIn("performance_nrmse_combined", written.errors[0])
+
+    def test_ppa_wrapper_run_outputs_overwrite_stale_verification_json(self):
+        root = scratch_case("ppa_wrapper_run_outputs_overwrite_stale_verification")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        stale = {
+            "candidate_id": "cid",
+            "status": "passed",
+            "metrics_path": str(candidate_dir / "ppa_metrics.json"),
+            "report_path": str(candidate_dir / "ppa_report.log"),
+            "spectre_logs": [],
+            "performance_nrmse_combined": 0.999,
+            "area_total_p": 1.0,
+            "power_score_basis_w": 1.0,
+            "errors": [],
+        }
+        (candidate_dir / "verification.json").write_text(json.dumps(stale), encoding="utf-8")
+        command = python_command(
+            "from pathlib import Path; import json; "
+            f"run = Path(r'{run_dir}'); "
+            "run.mkdir(parents=True, exist_ok=True); "
+            "metrics = dict(performance_nrmse_combined=0.25, "
+            "area_power=dict(area_total_p=55.0, power_score_basis_w=0.004)); "
+            "(run / 'ppa_metrics.json').write_text(json.dumps(metrics), encoding='utf-8'); "
+            "(run / 'ppa_report.log').write_text('fresh ppa report\\n', encoding='utf-8')"
+        )
+        verifier = Verifier(
+            command=command,
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=["verification.json", "ppa_metrics.json", "ppa_report.log"],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "passed", result.errors)
+        self.assertEqual(result.performance_nrmse_combined, 0.25)
+        self.assertEqual(result.area_total_p, 55.0)
+        self.assertEqual(result.power_score_basis_w, 0.004)
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(written.performance_nrmse_combined, 0.25)
+        self.assertEqual((candidate_dir / "ppa_report.log").read_text(encoding="utf-8"), "fresh ppa report\n")
+
+    def test_ppa_wrapper_stale_run_outputs_are_not_normalized_as_current_results(self):
+        root = scratch_case("ppa_wrapper_stale_run_outputs_are_not_normalized")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        stale_metrics = {
+            "performance_nrmse_combined": 0.125,
+            "area_power": {
+                "area_total_p": 45.0,
+                "power_score_basis_w": 0.003,
+            },
+        }
+        (run_dir / "ppa_metrics.json").write_text(json.dumps(stale_metrics), encoding="utf-8")
+        (run_dir / "ppa_report.log").write_text("stale ppa report\n", encoding="utf-8")
+        verifier = Verifier(
+            command=python_command("print('current verifier wrote no artifacts')"),
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=["verification.json", "ppa_metrics.json", "ppa_report.log"],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "error")
+        self.assertIn("missing required output", result.errors[0])
+        self.assertFalse((candidate_dir / "ppa_metrics.json").exists())
+        self.assertFalse((candidate_dir / "ppa_report.log").exists())
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(written.status, "error")
+        self.assertIn("missing required output", written.errors[0])
+
+    def test_default_runner_config_uses_ssh_verifier_and_requires_spectre_logs(self):
+        config = json.loads(Path("runner_config.json").read_text(encoding="utf-8"))
+
+        self.assertIn("langgraph_runner.ssh_verifier", config["verifier"]["command"])
+        self.assertIn("me59@163.180.160.78", config["verifier"]["command"])
+        self.assertIn("/home/me59/amplifier_runner", config["verifier"]["command"])
+        self.assertIn("--identity-file", config["verifier"]["command"])
+        self.assertIn("eda_langgraph", config["verifier"]["command"])
+        self.assertNotIn("{repo_root}/amptest/ppa_wrapper.py all", config["verifier"]["command"])
+        self.assertEqual(
+            config["verifier"]["required_outputs"],
+            ["verification.json", "ppa_metrics.json", "ppa_report.log", "spectre_ac.log", "spectre_tran.log"],
+        )
+
     def test_templated_command_validates_required_outputs(self):
         root = scratch_case("templated_command_validates_required_outputs")
         candidate_dir = root / "candidate"

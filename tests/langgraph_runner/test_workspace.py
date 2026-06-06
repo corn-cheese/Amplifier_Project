@@ -230,6 +230,43 @@ class TestCandidateWorkspace(unittest.TestCase):
         self.assertIn("R1 VDD VOUT 20k\n", (workspace / "dummy_neural_amp.scs").read_text(encoding="utf-8"))
         self.assertIn("R1,resistor,2,true\n", (workspace / "devices.csv").read_text(encoding="utf-8"))
 
+    def test_apply_patch_writes_patch_text_without_platform_newline_conversion(self):
+        root = scratch_case("apply_patch_writes_patch_text_without_platform_newline_conversion")
+        workspace = root / "workspace"
+        workspace.mkdir(exist_ok=True)
+        (workspace / "dummy_neural_amp.scs").write_text("base netlist\n", encoding="utf-8")
+        (workspace / "devices.csv").write_text("base devices\n", encoding="utf-8")
+        patch_text = (
+            "diff --git a/amptest/dummy_neural_amp.scs b/amptest/dummy_neural_amp.scs\n"
+            "--- a/amptest/dummy_neural_amp.scs\n"
+            "+++ b/amptest/dummy_neural_amp.scs\n"
+            "@@ -1 +1 @@\n"
+            "-base netlist\n"
+            "+patched netlist\n"
+        )
+        manager = CandidateWorkspace(root / "automation_artifacts" / "workspaces")
+        captured_patch_bytes = None
+
+        def fake_patch_layout(_workspace):
+            scratch = root / "mock_patch_root_newlines"
+            amptest = scratch / "amptest"
+            amptest.mkdir(parents=True, exist_ok=True)
+            (amptest / "dummy_neural_amp.scs").write_text("patched netlist\n", encoding="utf-8")
+            (amptest / "devices.csv").write_text("base devices\n", encoding="utf-8")
+            return scratch
+
+        def fake_git_apply(args, **_kwargs):
+            nonlocal captured_patch_bytes
+            captured_patch_bytes = Path(args[-1]).read_bytes()
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+        with patch("langgraph_runner.workspace._ensure_amptest_layout", fake_patch_layout):
+            with patch("langgraph_runner.workspace.subprocess.run", side_effect=fake_git_apply):
+                result = manager.apply_patch(workspace, patch_text)
+
+        self.assertTrue(result.applied, result.reason)
+        self.assertEqual(captured_patch_bytes, patch_text.encode("utf-8"))
+
     def test_apply_patch_rejects_missing_patched_output_without_copy_back(self):
         root = scratch_case("apply_patch_rejects_missing_patched_output_without_copy_back")
         workspace = root / "workspace"

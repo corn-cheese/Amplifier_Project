@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from inspect import Parameter, signature
 from pathlib import Path
+from typing import Callable, Mapping
 
+from .agent_errors import AGENT_EXECUTION_FAILED, AGENT_PROCESS_FAILED, AGENT_TIMEOUT
 from .artifacts import _safe_fragment
 from .batch import CandidateAssignment
+from .codex_cli import resolve_codex_command
 from .schemas import Phase
 
 
@@ -17,6 +22,8 @@ class AgentCall:
     context_path: Path
     output_dir: Path
     timeout_seconds: int
+    artifact_output_dir: Path | None = None
+    agent_call_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -24,6 +31,11 @@ class AgentRunResult:
     exit_code: int
     stdout_path: Path
     stderr_path: Path
+    agent_run_path: Path | None = None
+    status: str = "completed"
+    error_class: str | None = None
+    error: str | None = None
+    command: list[str] | None = None
 
 
 def write_context_package(
@@ -34,22 +46,43 @@ def write_context_package(
     contract_excerpt: str,
     state_summary: dict,
     recent_ledger: list[dict],
+    dut_netlist_path: str,
+    devices_csv_path: str,
     base_dut: Path,
     base_devices: Path,
 ) -> Path:
     package = run_dir / "agent_calls" / _safe_fragment(agent_call_id)
     base_files = package / "base_files"
     base_files.mkdir(parents=True, exist_ok=True)
+    (package / "output").mkdir(parents=True, exist_ok=True)
     if base_dut.exists():
         shutil.copy2(base_dut, base_files / base_dut.name)
     if base_devices.exists():
         shutil.copy2(base_devices, base_files / base_devices.name)
     phase = assignment.phase.value if isinstance(assignment.phase, Phase) else assignment.phase
+    allowed_file_paths = [str(dut_netlist_path), str(devices_csv_path)]
     (package / "state_summary.json").write_text(json.dumps(state_summary, indent=2) + "\n", encoding="utf-8")
     (package / "recent_ledger.jsonl").write_text(
         "".join(json.dumps(row, sort_keys=True) + "\n" for row in recent_ledger),
         encoding="utf-8",
     )
+    proposal_skeleton = {
+        "candidate_id": assignment.candidate_id,
+        "phase": phase,
+        "agent": assignment.role,
+        "hypothesis": "string",
+        "primary_objective": assignment.primary_objective,
+        "changed_blocks": ["bias"],
+        "files_touched": allowed_file_paths,
+        "expected_effect": {
+            "performance_nrmse_combined": "unknown",
+            "area_total_p": "unknown",
+            "power_score_basis_w": "unknown",
+        },
+        "risk": "string",
+        "patch": "same unified diff text as output/patch.diff",
+    }
+    feedback_lines = _recent_verification_feedback_lines(state_summary, recent_ledger)
     context = "\n".join(
         [
             f"# Agent Context: {assignment.role}",
@@ -63,57 +96,393 @@ def write_context_package(
             contract_excerpt,
             "",
             "## Required Outputs",
-            "- proposal.json",
-            "- patch.diff",
-            "- notes.md",
+            "- output/proposal.json",
+            "- output/patch.diff",
+            "- output/notes.md",
             "",
-            "Write outputs only inside the assigned output directory.",
+            "Write required files under output/ relative to the current context directory.",
+            "",
+            *feedback_lines,
+            "## Candidate Artifact Contract",
+            "You must produce a real candidate by writing all three required files. Prose-only answers are invalid; stdout or chat text is not a candidate artifact.",
+            "",
+            "### output/proposal.json",
+            "Write JSON with these required fields and echo the assigned candidate_id, phase, agent, and primary_objective exactly:",
+            "",
+            "```json",
+            json.dumps(proposal_skeleton, indent=2),
+            "```",
+            "",
+            "Allowed expected_effect values for each metric: decrease, increase, no_major_change, unknown. Use one literal per metric.",
+            "",
+            "### output/patch.diff",
+            "- output/patch.diff must be a unified diff that changes only the DUT netlist and/or device accounting.",
+            "- The same unified diff text must appear in the proposal.json patch field.",
+            "- Candidate patches apply only in isolated candidate snapshots; do not mutate repository files directly.",
+            "",
+            "### output/notes.md",
+            "- output/notes.md must explain the candidate hypothesis, changed blocks, files touched, expected metric effects, risk, and any reviewer/verifier notes.",
+            "- Natural-language claims are not evidence. Do not claim verified success; only verifier artifacts and recorded metrics can prove outcomes.",
+            "",
+            "### File And Design Constraints",
+            f"- Allowed file changes: {dut_netlist_path} and {devices_csv_path} only.",
+            "- Do not modify amptest config, analyzer, scoring logic, generated testbenches, AC/transient input conditions, supplies, references, inputs, loads, or metric calculations.",
+            "- Forbidden: OPAMP, OPAMP-equivalent macro, Verilog-A behavioral amplifier, ideal gain block, controlled source used as an amplifier.",
+            "- Use only the exact installed SKY130 Spectre names from the contract allowlist: npn_05v5_W1p00L1p00, npn_05v5_W1p00L2p00, pnp_05v5_W0p68L0p68, pnp_05v5_W3p40L3p40, res_high_po_5p73, cap_vpp_11p5x11p7_m1m4_noshield, sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield, diode_pd2nw_05v5.",
+            "- Do not use sky130_fd_pr_main__... aliases; they are not valid for the installed Spectre include path.",
+            "- For PPA accounting, every res_high_po_5p73 instance must include explicit l=, w=, and m= on the netlist line.",
+            "- Resistor rows in devices.csv are not enough when resistor_source is netlist.",
+            "- An abnormally small area_total_p can indicate invalid resistor area accounting, not a better candidate.",
+            "- Keep devices.csv synchronized with every netlist device included in PPA accounting.",
+            "",
+            "## Codex CLI Execution Environment",
+            "- Codex CLI execution inherits the operator's existing CLI environment and authentication.",
+            "- Do not ask for or require an OpenAI API key.",
+            "- Treat CLI/authentication setup as an operator responsibility; your task is only to write the required output artifacts.",
         ]
     )
     (package / "context.md").write_text(context + "\n", encoding="utf-8")
     return package
 
 
+def _recent_verification_feedback_lines(state_summary: dict, recent_ledger: list[dict]) -> list[str]:
+    failures = [
+        row
+        for row in recent_ledger[-6:]
+        if str(row.get("status", "")) in {"rejected", "error"}
+    ]
+    best_failed_id = state_summary.get("best_failed_candidate_id")
+    best_failed_metrics = state_summary.get("best_failed_metrics")
+    if not failures and not best_failed_id:
+        return []
+
+    lines = [
+        "## Feedback From Recent Verifications",
+        "",
+    ]
+    if best_failed_id:
+        lines.append(f"- Current best failed candidate: {best_failed_id}")
+        if isinstance(best_failed_metrics, dict):
+            metrics_text = _format_feedback_metrics(best_failed_metrics)
+            if metrics_text:
+                lines.append(f"  - Best failed metrics: {metrics_text}")
+
+    for row in failures[-3:]:
+        candidate_id = str(row.get("candidate_id", "unknown"))
+        status = str(row.get("status", "unknown"))
+        reason = str(row.get("reason", "")).strip()
+        metrics = row.get("metrics", {})
+        metrics_text = _format_feedback_metrics(metrics if isinstance(metrics, dict) else {})
+        summary = f"- Recent {status}: {candidate_id}"
+        if reason:
+            summary += f" ({reason})"
+        lines.append(summary)
+        if metrics_text:
+            lines.append(f"  - Metrics: {metrics_text}")
+
+    lines.extend(
+        [
+            "",
+            "For this candidate:",
+            "- create a DC-biased amplifier with nonzero supply current; avoid static_current_a=0 failure modes.",
+            "- ensure AC and transient metrics can be produced; performance_nrmse_combined must be non-null.",
+            "- do not optimize area until performance metrics are non-null and amplifier-like.",
+            "- abnormally small area_total_p can indicate invalid resistor area accounting, not a better candidate.",
+            "- res_high_po_5p73 resistor instances must include explicit l=, w=, and m= on the DUT netlist line; devices.csv resistor rows are not enough when resistor_source is netlist.",
+            "- avoid corrupt patches; output/patch.diff must be directly applicable as a unified diff.",
+            "",
+        ]
+    )
+    return lines
+
+
+def _format_feedback_metrics(metrics: dict) -> str:
+    ordered_names = ["performance_nrmse_combined", "area_total_p", "power_score_basis_w"]
+    parts = []
+    for name in ordered_names:
+        if name in metrics and metrics[name] is not None:
+            parts.append(f"{name}={metrics[name]}")
+    return ", ".join(parts)
+
+
 class AgentRunner:
     def __init__(self, executor=None):
         self.executor = executor or self._subprocess_executor
 
-    def _subprocess_executor(self, command: list[str], cwd: Path, timeout: int) -> tuple[int, str, str]:
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=str(cwd),
-                timeout=timeout,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                capture_output=True,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout if exc.stdout is not None else exc.output
-            stderr = exc.stderr or ""
-            timeout_message = f"agent command timed out after {timeout} seconds"
-            return 124, _text(stdout), _text(stderr) + ("\n" if stderr else "") + timeout_message
+    def _subprocess_executor(
+        self,
+        command: list[str],
+        cwd: Path,
+        timeout: int,
+        stdin_text: str | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> tuple[int, str, str]:
+        completed = subprocess.run(
+            command,
+            cwd=str(cwd),
+            env=dict(env) if env is not None else None,
+            timeout=timeout,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            input=stdin_text,
+            capture_output=True,
+            check=False,
+        )
         return completed.returncode, completed.stdout, completed.stderr
 
     def run(self, call: AgentCall) -> AgentRunResult:
-        call.output_dir.mkdir(parents=True, exist_ok=True)
-        context_text = (call.context_path / "context.md").read_text(encoding="utf-8")
-        runtime_prompt = context_text + "\nAssigned output directory: " + str(call.output_dir) + "\n"
+        context_path = call.context_path.resolve()
+        output_dir = call.output_dir.resolve()
+        artifact_output_dir = (call.artifact_output_dir or call.output_dir).resolve()
+        resolved_call = AgentCall(
+            role=call.role,
+            context_path=context_path,
+            output_dir=output_dir,
+            timeout_seconds=call.timeout_seconds,
+            artifact_output_dir=artifact_output_dir,
+            agent_call_id=call.agent_call_id,
+        )
+        stdout_path = output_dir / "stdout.log"
+        stderr_path = output_dir / "stderr.log"
+        agent_run_path = output_dir / "agent_run.json"
+        child_env, child_environment_summary = _codex_child_environment(context_path)
         command = [
-            "codex",
+            *resolve_codex_command(),
             "exec",
+            "--sandbox",
+            "workspace-write",
             "-C",
-            str(call.context_path),
-            runtime_prompt,
+            str(context_path),
+            "-",
         ]
-        exit_code, stdout, stderr = self.executor(command, call.context_path, call.timeout_seconds)
-        stdout_path = call.output_dir / "stdout.log"
-        stderr_path = call.output_dir / "stderr.log"
+        exit_code = 1
+        stdout = ""
+        stderr = ""
+        status = "error"
+        error_class: str | None = None
+        error: str | None = None
+
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            artifact_output_dir.mkdir(parents=True, exist_ok=True)
+            context_text = (context_path / "context.md").read_text(encoding="utf-8")
+            runtime_prompt = context_text + "\nRequired artifact output directory: " + str(artifact_output_dir) + "\n"
+            exit_code, stdout, stderr = _call_executor(
+                self.executor,
+                command,
+                context_path,
+                call.timeout_seconds,
+                runtime_prompt,
+                child_env,
+            )
+            if exit_code == 0:
+                status = "completed"
+            else:
+                error_class = AGENT_PROCESS_FAILED
+                error = _process_error(exit_code, stdout, stderr)
+        except subprocess.TimeoutExpired as exc:
+            exit_code = 124
+            stdout = _text(exc.stdout if exc.stdout is not None else exc.output)
+            stderr_text = _text(exc.stderr)
+            error = f"agent command timed out after {call.timeout_seconds} seconds"
+            stderr = stderr_text + ("\n" if stderr_text else "") + error
+            error_class = AGENT_TIMEOUT
+        except (PermissionError, OSError) as exc:
+            exit_code = 1
+            stdout = ""
+            stderr = str(exc)
+            error = str(exc)
+            error_class = AGENT_EXECUTION_FAILED
+
+        return _finalize_agent_run(
+            call=resolved_call,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            agent_run_path=agent_run_path,
+            artifact_output_dir=artifact_output_dir,
+            command=command,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            status=status,
+            error_class=error_class,
+            error=error,
+            environment=child_environment_summary,
+        )
+
+
+def _finalize_agent_run(
+    *,
+    call: AgentCall,
+    stdout_path: Path,
+    stderr_path: Path,
+    agent_run_path: Path,
+    artifact_output_dir: Path,
+    command: list[str],
+    exit_code: int,
+    stdout: str,
+    stderr: str,
+    status: str,
+    error_class: str | None,
+    error: str | None,
+    environment: dict[str, str] | None = None,
+) -> AgentRunResult:
+    log_write_errors = []
+    try:
         stdout_path.write_text(stdout, encoding="utf-8")
+    except OSError as exc:
+        log_write_errors.append(f"stdout.log: {exc}")
+    try:
         stderr_path.write_text(stderr, encoding="utf-8")
-        return AgentRunResult(exit_code=exit_code, stdout_path=stdout_path, stderr_path=stderr_path)
+    except OSError as exc:
+        log_write_errors.append(f"stderr.log: {exc}")
+    if log_write_errors:
+        log_error = "could not write agent logs: " + "; ".join(log_write_errors)
+        error = _join_error(error, log_error)
+        stderr = stderr + ("\n" if stderr else "") + log_error
+        error_class = AGENT_EXECUTION_FAILED
+        status = "error"
+        if exit_code == 0:
+            exit_code = 1
+
+    written_agent_run_path: Path | None = agent_run_path
+    while True:
+        metadata = {
+            "agent_call_id": call.agent_call_id,
+            "role": call.role,
+            "context_path": str(call.context_path),
+            "artifact_output_dir": str(artifact_output_dir),
+            "log_dir": str(call.output_dir),
+            "stdout_path": str(stdout_path),
+            "stderr_path": str(stderr_path),
+            "agent_run_path": str(agent_run_path),
+            "paths": {
+                "context_path": str(call.context_path),
+                "artifact_output_dir": str(artifact_output_dir),
+                "log_dir": str(call.output_dir),
+                "stdout_path": str(stdout_path),
+                "stderr_path": str(stderr_path),
+                "agent_run_path": str(agent_run_path),
+            },
+            "command": command,
+            "environment": environment or {},
+            "exit_code": exit_code,
+            "status": status,
+            "error_class": error_class,
+            "error": error,
+        }
+        try:
+            agent_run_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+            break
+        except OSError as exc:
+            metadata_error = f"could not write agent_run.json: {exc}"
+            if metadata_error in (error or ""):
+                written_agent_run_path = None
+                break
+            error = _join_error(error, metadata_error)
+            error_class = AGENT_EXECUTION_FAILED
+            status = "error"
+            if exit_code == 0:
+                exit_code = 1
+            written_agent_run_path = None
+            continue
+
+    return AgentRunResult(
+        exit_code=exit_code,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        agent_run_path=written_agent_run_path,
+        status=status,
+        error_class=error_class,
+        error=error,
+        command=command,
+    )
+
+
+def _codex_child_environment(context_path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    env = _allowed_child_environment(os.environ)
+    codex_root, environment_label = _codex_runtime_root(context_path)
+    codex_home = codex_root / ".codex_home"
+    codex_tmp = codex_root / ".codex_tmp"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    codex_tmp.mkdir(parents=True, exist_ok=True)
+    _seed_codex_home(codex_home, _source_codex_home(env))
+    env["CODEX_HOME"] = str(codex_home)
+    env["TMP"] = str(codex_tmp)
+    env["TEMP"] = str(codex_tmp)
+    summary = {
+        "codex_cli_environment": environment_label,
+        "CODEX_HOME": env.get("CODEX_HOME", "<unset>"),
+        "TMP": env.get("TMP", "<unset>"),
+        "TEMP": env.get("TEMP", "<unset>"),
+    }
+    return env, summary
+
+
+def _codex_runtime_root(context_path: Path) -> tuple[Path, str]:
+    if context_path.parent.name == "agent_calls":
+        return context_path.parent.parent, "run_local_codex_home"
+    return context_path, "context_local_codex_home"
+
+
+def _source_codex_home(env: Mapping[str, str]) -> Path:
+    configured = env.get("CODEX_HOME")
+    if configured:
+        return Path(configured)
+    return Path.home() / ".codex"
+
+
+def _seed_codex_home(target: Path, source: Path) -> None:
+    try:
+        source_resolved = source.resolve()
+        target_resolved = target.resolve()
+    except OSError:
+        return
+    if source_resolved == target_resolved or not source_resolved.is_dir():
+        return
+    for name in ("auth.json", "config.toml"):
+        source_file = source_resolved / name
+        if source_file.is_file():
+            shutil.copy2(source_file, target_resolved / name)
+
+
+def _allowed_child_environment(source: Mapping[str, str]) -> dict[str, str]:
+    return dict(source)
+
+
+def _call_executor(
+    executor: Callable,
+    command: list[str],
+    cwd: Path,
+    timeout: int,
+    stdin_text: str,
+    env: Mapping[str, str],
+) -> tuple[int, str, str]:
+    if _executor_accepts_env(executor):
+        return executor(command, cwd, timeout, stdin_text, env=env)
+    return executor(command, cwd, timeout, stdin_text)
+
+
+def _executor_accepts_env(executor: Callable) -> bool:
+    try:
+        parameters = signature(executor).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(parameter.kind == Parameter.VAR_KEYWORD or parameter.name == "env" for parameter in parameters)
+
+
+def _join_error(existing: str | None, addition: str) -> str:
+    if existing:
+        return existing + "; " + addition
+    return addition
+
+
+def _process_error(exit_code: int, stdout: str, stderr: str) -> str:
+    detail = (stderr or stdout).strip()
+    if detail:
+        return f"process exited with code {exit_code}: {detail}"
+    return f"process exited with code {exit_code}"
 
 
 def _text(value: str | bytes | None) -> str:

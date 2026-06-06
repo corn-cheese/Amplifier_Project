@@ -18,7 +18,7 @@ class CandidateAssignment:
 
 def roles_for_phase(phase: Phase) -> list[str]:
     if phase == Phase.PHASE1_PERFORMANCE:
-        return ["architecture", "architecture", "optimizer"]
+        return ["diagnosis", "architecture", "optimizer"]
     if phase == Phase.PHASE2A_AREA:
         return ["optimizer", "architecture", "optimizer"]
     return ["optimizer", "diagnosis", "optimizer"]

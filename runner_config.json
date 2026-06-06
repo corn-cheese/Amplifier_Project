@@ -14,8 +14,11 @@
     "reviewer": 300,
     "top": 300
   },
+  "agent_backend": {
+    "mode": "codex_exec"
+  },
   "verifier": {
-    "command": "python {repo_root}/amptest/ppa_wrapper.py analyze --config {local_candidate_dir}/config.json",
+    "command": "python -m langgraph_runner.ssh_verifier --ssh-target me59@163.180.160.78 --remote-root /home/me59/amplifier_runner --identity-file \"%USERPROFILE%\\.ssh\\eda_langgraph\" --candidate-id {candidate_id} --repo-root \"{repo_root}\" --local-candidate-dir \"{local_candidate_dir}\"",
     "timeout_seconds": 1800,
     "min_interval_seconds": 30,
     "required_outputs": [

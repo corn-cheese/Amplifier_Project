@@ -8,7 +8,7 @@ This document defines the production readiness and runbook design for operating
 the repository LangGraph runner against the amplifier automation workflow.
 
 The focus is operational readiness, not new feature implementation. A
-production run means a bounded, auditable runner invocation that may call
+production run means a counted, auditable runner invocation that may call
 `codex exec` for candidate and prime agents and may call the configured
 `amptest` verifier for EDA-backed metrics, while preserving the Top Coordinator
 contract,
@@ -39,10 +39,13 @@ Implemented runner behavior in the current package:
 
 - `init` initializes `automation_artifacts/`, creates `ledger.jsonl` when
   missing, and creates `state.json` when missing.
-- `run-one-batch` invokes the graph once with route `stop`.
-- `run` invokes the graph with route `next_batch` and
-  `stop_after_current_pass=True`, so the CLI remains bounded.
-- `resume --human-response "<text>"` injects `human_response` into graph state.
+- `run-one-batch` invokes the graph once with route `stop`; it is equivalent to
+  counted_run count 1 for a single candidate batch.
+- `run` invokes the graph with route `next_batch`, `--count N`, and counted_run
+  fields. The default count is 1.
+- `resume --human-response "<text>"` injects `human_response` into graph state
+  and continues at most one pass unless an explicit count already exists in
+  persisted graph state.
 - The graph includes implemented nodes for context load, batch planning,
   subagent execution, subagent output parsing and retry, prime request handling,
   candidate assembly, deterministic review, serialized verification,
@@ -68,7 +71,7 @@ Current production limitation:
 - The Top anomaly node persists a provided `TopDecision` or writes a
   deterministic default decision. Production human-interrupt behavior can be
   exercised through pending interrupt/resume paths, but a live Top Coordinator
-  agent handoff is outside the initial bounded canary unless implemented
+  agent handoff is outside the initial counted canary unless implemented
   separately.
 - `runner_config.json` is suitable as the repository default. Production should
   use an explicit copied config and artifact root rather than mutating the
@@ -76,7 +79,7 @@ Current production limitation:
 
 ## Production Goals
 
-- Run one bounded batch at a time with complete preflight checks.
+- Run one counted batch/pass at a time with complete preflight checks.
 - Keep candidate generation, review, verification, evaluation, promotion, and
   ledger/state recording auditable from files.
 - Preserve the Top Coordinator contract invariants:
@@ -92,7 +95,8 @@ Current production limitation:
 
 ## Production Non-Goals
 
-- Do not implement continuous unattended looping for initial production runs.
+- Do not implement unbounded or continuous unattended looping for initial
+  production runs.
 - Do not change `amptest` scoring, analyzer, wrapper, config, or generated
   testbench behavior.
 - Do not make LangGraph checkpoints canonical.
@@ -114,6 +118,10 @@ Production candidate generation requires:
 - `codex exec` can run non-interactively from a context directory.
 - Authentication and model/provider settings are already configured outside the
   runner.
+- The `codex_exec` backend inherits the operator process environment, including
+  the existing Codex CLI home when `CODEX_HOME` is set. The runner does not
+  create a fresh run-scoped `CODEX_HOME` or copy auth tokens into agent output
+  directories.
 - The CLI policy or sandbox used for production prevents unintended writes
   outside the assigned output directory. The runner prompts agents to write only
   there, but it does not itself sandbox the external `codex` process.
@@ -124,7 +132,7 @@ Production candidate generation requires:
 - The operator has confirmed that `codex exec` is allowed to read the generated
   context package under `automation_artifacts/runs/<run_id>/agent_calls/`.
 - The operator has confirmed the actual command shape used by the runner:
-  `codex exec -C <context_path> <runtime_prompt>`.
+  `codex exec -C <context_path> -`, with the runtime prompt passed on stdin.
 
 Preflight command:
 
@@ -133,17 +141,21 @@ codex exec --help
 ```
 
 This confirms CLI availability only. A production dry run should also execute a
-small throwaway `codex exec -C <context_path> <runtime_prompt>` smoke that
-writes only to a temporary output directory. Fake-executor tests are useful for
-runner logic, but they do not validate the production Codex CLI environment.
+small throwaway `codex exec -C <context_path> -` smoke, using stdin and the same
+inherited CLI environment as the runner, that writes only to a temporary output
+directory. Fake-executor tests are useful for runner logic, but they do not
+validate the production Codex CLI environment.
 
 ### EDA and `amptest` verifier
 
 Production verification requires:
 
-- Python environment can run `amptest/ppa_wrapper.py`.
+- The local runner Python environment can run `python -m
+  langgraph_runner.ssh_verifier`.
+- SSH/SCP can authenticate non-interactively to `me59@163.180.160.78` with
+  `%USERPROFILE%\.ssh\eda_langgraph`.
 - Cadence/Spectre/OCEAN or the project EDA backend required by `amptest` is
-  installed, licensed, and available from the runner process environment.
+  installed, licensed, and available from the remote SSH login environment.
 - Any required process, PDK, model, license, and SSH environment variables are
   present before launching the runner.
 - `amptest/config.json` is readable and matches the intended DUT contract.
@@ -160,7 +172,7 @@ Production verification requires:
 Repository default verifier command:
 
 ```sh
-python {repo_root}/amptest/ppa_wrapper.py analyze --config {local_candidate_dir}/config.json
+python -m langgraph_runner.ssh_verifier --ssh-target me59@163.180.160.78 --remote-root /home/me59/amplifier_runner --identity-file "%USERPROFILE%\.ssh\eda_langgraph" --candidate-id {candidate_id} --repo-root "{repo_root}" --local-candidate-dir "{local_candidate_dir}"
 ```
 
 The runner executes this through `shell=True` from `repo_root` after formatting
@@ -273,8 +285,13 @@ The first production run must be a one-candidate, one-batch canary.
 3. Run:
 
    ```sh
-   python -m langgraph_runner --repo-root . --config automation_artifacts/operator_configs/prod-run-YYYYMMDD-HHMMSS.json run-one-batch
+   python -m langgraph_runner --repo-root . --config runner_config.json production-run --artifact-root automation_artifacts/prod --eda-signoff "<verifier-owner signoff>"
    ```
+
+   Or use `--eda-smoke-command "<approved-smoke-command>"` instead of
+   `--eda-signoff`. The production command prepares a copied config with
+   `candidate_generation_batch_size=1`, then invokes the graph with route
+   `next_batch`, `counted_run_total=1`, and `counted_run_remaining=1`.
 
 4. Inspect:
 
@@ -330,8 +347,9 @@ Operational rules:
 
 - A response is attached only if
   `<artifact_root>/runs/manual/human_interrupt.json` exists.
-- If no pending interrupt exists, the runner records a warning and continues a
-  bounded graph pass.
+- If no pending interrupt exists, the runner records a warning and continues at
+  most one counted graph pass unless an explicit count already exists in
+  persisted graph state.
 - Canonical `state.json` and `ledger.jsonl` remain authoritative after resume.
 - Do not edit `state.json`, `ledger.jsonl`, or `human_interrupt.json` by hand
   unless executing the documented rollback procedure.
@@ -442,7 +460,7 @@ Examples:
 Action:
 
 - Preserve stdout/stderr and candidate artifacts.
-- Retry only through the runner retry path or a new bounded batch.
+- Retry only through the runner retry path or a new counted batch/pass.
 - Escalate to runner owner if the same error repeats for multiple candidates.
 
 ### Infrastructure verifier failure
@@ -467,7 +485,8 @@ Action:
 
 Examples:
 
-- `codex exec` missing, unauthenticated, timed out, or returned nonzero.
+- `codex exec` missing, inherited Codex CLI auth/config inaccessible, timed out,
+  or returned nonzero.
 - Agent wrote outside the assigned output directory, as observed by sandbox
   audit, git diff, or filesystem inspection.
 - Agent produced malformed artifacts twice.
@@ -519,16 +538,22 @@ Initialize production artifacts:
 python -m langgraph_runner --repo-root . --config <production-config> init
 ```
 
-Run one bounded production batch:
+Run one single-batch production pass:
 
 ```sh
 python -m langgraph_runner --repo-root . --config <production-config> run-one-batch
 ```
 
-Run the bounded `run` route:
+Run the counted `run` route:
 
 ```sh
 python -m langgraph_runner --repo-root . --config <production-config> run
+```
+
+Run multiple candidate batch/passes explicitly:
+
+```sh
+python -m langgraph_runner --repo-root . --config <production-config> run --count 3
 ```
 
 Resume with a human response:
@@ -563,8 +588,8 @@ Update `docs/langgraph-runner.md` before declaring production readiness:
 - Add a "Production Run Readiness" section linking to this spec.
 - Clarify that `runner_config.json` is the repository default and production
   should use a copied config with an isolated artifact root.
-- Document that current CLI `run` remains bounded by
-  `stop_after_current_pass=True`.
+- Document that current CLI `run` is counted with positive integer `--count`,
+  defaulting to 1.
 - Document run-scoped files under `automation_artifacts/runs/<run_id>/`,
   including agent calls, agent outputs, `top_decision.json`,
   `human_interrupt.json`, and `batch_error.json`.
@@ -591,7 +616,8 @@ Production run readiness is satisfied when:
   on the exact verifier environment.
 - A timestamped backup of DUT files, state, ledger, candidate artifacts,
   workspaces, runs, and production config exists before execution.
-- A one-candidate `run-one-batch` canary completes with durable artifacts.
+- A one-candidate `production-run` counted canary completes with durable
+  artifacts.
 - Every candidate that reaches evaluation and batch recording has a
   `verdict.json` and a ledger entry unless the run stops before recording due
   to a documented human interrupt, rerun-verification decision, or batch-level
@@ -620,8 +646,8 @@ Production run readiness is satisfied when:
 - `codex exec` is the real candidate and prime agent execution interface for
   production.
 - EDA-backed verification remains behind the configured verifier command.
-- The initial production posture is bounded batches, not unattended continuous
-  looping.
+- The initial production posture is explicit counted batches, not unattended
+  continuous looping.
 - The Top Coordinator contract and `amptest/config.json` remain the controlling
   sources for constraints and DUT pin order.
 - Other contributors may have uncommitted edits in the repository; operators

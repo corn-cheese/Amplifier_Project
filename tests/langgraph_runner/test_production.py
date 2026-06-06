@@ -104,6 +104,16 @@ class FailingGitStatusRecorder(CommandRecorder):
         return CommandResult(command=str(command), returncode=0, stdout="ok\n", stderr="")
 
 
+class FailingSmokeCommandRecorder(CommandRecorder):
+    def __call__(self, command, *, cwd: Path, shell: bool = False, timeout: int | None = None):
+        from langgraph_runner.production import CommandResult
+
+        self.commands.append((command, cwd, shell, timeout))
+        if shell:
+            return CommandResult(command=str(command), returncode=2, stdout="", stderr="quoted smoke command failed\n")
+        return CommandResult(command=str(command), returncode=0, stdout="ok\n", stderr="")
+
+
 class FakeGraph:
     def __init__(self):
         self.invocations = []
@@ -125,6 +135,7 @@ class FakeGraph:
             "candidate_ids": [candidate_id],
             "candidate_evaluations": [{"candidate_id": candidate_id, "status": "rejected", "metrics": {}}],
             "promoted_candidate_id": None,
+            "counted_run_remaining": 0,
         }
 
 
@@ -427,8 +438,46 @@ class TestProductionRun(unittest.TestCase):
         self.assertEqual(graph.invocations, [])
         failure_path = root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_failure.json"
         self.assertTrue(failure_path.exists())
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        self.assertEqual(failure["error_class"], "baseline_contract_violation")
+        self.assertEqual(failure["checks"]["contract"]["class"], "baseline_contract_violation")
+        self.assertIn(str(root / "amptest" / "devices.csv"), failure["checks"]["contract"]["details"])
+        self.assertIn("row 2", failure["checks"]["contract"]["details"])
+        self.assertIn("opamp", failure["checks"]["contract"]["details"])
+        self.assertFalse((root / "automation_artifacts" / "prod" / "state.json").exists())
+        self.assertFalse((root / "automation_artifacts" / "prod" / "ledger.jsonl").exists())
+        self.assertFalse((root / "automation_artifacts" / "prod" / "candidates").exists())
+        self.assertFalse((root / "automation_artifacts" / "prod" / "workspaces").exists())
 
-    def test_run_production_canary_runs_preflights_backup_and_graph_with_stop_route(self):
+    def test_run_production_canary_classifies_failed_smoke_command_without_requoting(self):
+        from langgraph_runner.production import ProductionRunError, run_production_canary
+
+        root = scratch_root("smoke_command_failure")
+        base_config = write_repo_fixture(root)
+        graph = FakeGraph()
+        commands = FailingSmokeCommandRecorder()
+        smoke_command = f'& "{sys.executable}" -c "print(\'smoke\')"'
+
+        with self.assertRaisesRegex(ProductionRunError, "eda_smoke"):
+            run_production_canary(
+                repo_root=root,
+                base_config_path=base_config,
+                artifact_root="automation_artifacts/prod",
+                timestamp="20260605-120000",
+                eda_smoke_command=smoke_command,
+                command_runner=commands,
+                graph_factory=lambda: graph,
+            )
+
+        self.assertEqual(graph.invocations, [])
+        self.assertIn((smoke_command, root, True, 1800), commands.commands)
+        failure_path = root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_failure.json"
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        self.assertEqual(failure["error_class"], "operator_command_error")
+        self.assertEqual(failure["checks"]["eda_smoke"]["class"], "operator_command_error")
+        self.assertIn("quoted smoke command failed", failure["checks"]["eda_smoke"]["details"])
+
+    def test_run_production_canary_runs_preflights_backup_and_graph_with_counted_run(self):
         from langgraph_runner.production import run_production_canary
 
         root = scratch_root("run_canary")
@@ -436,27 +485,40 @@ class TestProductionRun(unittest.TestCase):
         commands = CommandRecorder()
         graph = FakeGraph()
 
-        result = run_production_canary(
-            repo_root=root,
-            base_config_path=base_config,
-            artifact_root="automation_artifacts/prod",
-            timestamp="20260605-120000",
-            eda_signoff="Verifier owner approved this shell environment.",
-            command_runner=commands,
-            graph_factory=lambda: graph,
-        )
+        with patch("langgraph_runner.production.resolve_codex_command", return_value=["codex.cmd"]):
+            result = run_production_canary(
+                repo_root=root,
+                base_config_path=base_config,
+                artifact_root="automation_artifacts/prod",
+                timestamp="20260605-120000",
+                eda_signoff="Verifier owner approved this shell environment.",
+                command_runner=commands,
+                graph_factory=lambda: graph,
+            )
 
-        self.assertEqual(graph.invocations[0][0]["route"], "stop")
+        self.assertEqual(graph.invocations[0][0]["route"], "next_batch")
         self.assertEqual(graph.invocations[0][0]["run_id"], "manual")
+        self.assertEqual(graph.invocations[0][0]["counted_run_total"], 1)
+        self.assertEqual(graph.invocations[0][0]["counted_run_remaining"], 1)
         self.assertEqual(json.loads(result.config_path.read_text(encoding="utf-8"))["candidate_generation_batch_size"], 1)
         self.assertTrue(result.backup_dir.exists())
         self.assertTrue(result.summary_path.exists())
+        start = json.loads((root / "automation_artifacts" / "prod" / "runs" / "manual" / "production_run_start.json").read_text(encoding="utf-8"))
+        self.assertEqual(start["counted_run_total"], 1)
+        self.assertEqual(start["counted_run_remaining"], 1)
         summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
         self.assertEqual(summary["config_path"], str(result.config_path))
         self.assertEqual(summary["backup_dir"], str(result.backup_dir))
+        self.assertNotIn("counted_run_total", summary)
+        self.assertNotIn("counted_run_remaining", summary)
+        self.assertEqual(summary["initial_counted_run_total"], 1)
+        self.assertEqual(summary["initial_counted_run_remaining"], 1)
+        self.assertEqual(summary["final_counted_run_remaining"], 0)
+        self.assertEqual(summary["graph"]["counted_run_total"], 1)
+        self.assertEqual(summary["graph"]["counted_run_remaining"], 0)
         self.assertIn("Verifier owner approved", summary["checks"]["eda_smoke"]["details"])
         self.assertTrue(any(command[0][:3] == [sys.executable, "-m", "unittest"] for command in commands.commands))
-        self.assertTrue(any(command[0] == ["codex", "exec", "--help"] for command in commands.commands))
+        self.assertTrue(any(command[0] == ["codex.cmd", "exec", "--help"] for command in commands.commands))
 
     def test_cli_dispatches_production_run(self):
         from langgraph_runner.cli import main

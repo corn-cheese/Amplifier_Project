@@ -262,7 +262,7 @@ class CandidateWorkspace:
     def apply_patch(self, workspace: Path, patch_text: str) -> PatchApplyResult:
         scratch = _ensure_amptest_layout(workspace)
         patch_file = workspace / "patch.diff"
-        patch_file.write_text(patch_text, encoding="utf-8")
+        patch_file.write_bytes(patch_text.encode("utf-8"))
         env = os.environ.copy()
         existing_ceiling = env.get("GIT_CEILING_DIRECTORIES")
         workspace_ceiling = str(workspace.resolve())

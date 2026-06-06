@@ -73,13 +73,83 @@ Forbidden design shortcuts:
 - controlled source used as an amplifier
 - testbench or metric manipulation
 
-Allowed device classes:
+Allowed Spectre device definitions are fixed by the installed SKY130 PDK under
+`/home/eda/edk_cadence/sky130_release_0.1.0` and the `tt` section included by
+`amptest/config.json`. Candidate netlists must use the exact subcircuit or model
+names below. Do not use `sky130_fd_pr_main__...` names; those aliases are not
+defined by the installed Spectre include path.
 
-- `sky130_fd_pr_main` `npn_05v5`
-- `sky130_fd_pr_main` `pnp_05v5`
-- `sky130_fd_pr_main` `res_high_po_5p73`
-- `sky130_fd_pr_main` `cap_vpp_11p5x11p7_m1m4_noshield`
-- `sky130_fd_pr_main` `diode_pd2nw_05v5`
+Allowed BJT subcircuits:
+
+```spectre
+Q1 C B E S npn_05v5_W1p00L1p00
+Q2 C B E S npn_05v5_W1p00L2p00
+Q3 C B E S pnp_05v5_W0p68L0p68
+Q4 C B E S pnp_05v5_W3p40L3p40
+```
+
+BJT pin order is `c b e s`.
+
+Allowed resistor subcircuit:
+
+```spectre
+R1 N0 N1 BULK res_high_po_5p73 l=5u w=5.73u m=1
+```
+
+Resistor pin order is `r0 r1 b`. Because `amptest/config.json` sets
+`area.resistor_source` to `netlist`, every `res_high_po_5p73` instance must be
+both Spectre-valid and PPA-accounting-valid. Do not rely on PDK subcircuit
+default `.param` values for area accounting. The DUT netlist instance line must
+explicitly include positive `l=`, `w=`, and `m=` values. The analyzer also
+recognizes `mult=`, `multi=`, and `multiplier=`, but `m=` is the canonical
+candidate syntax.
+
+Invalid for PPA accounting:
+
+```spectre
+R1 N0 N1 BULK res_high_po_5p73
+```
+
+Canonical resistor syntax:
+
+```spectre
+R1 N0 N1 BULK res_high_po_5p73 l=<positive> w=<positive> m=<positive>
+```
+
+If `area.resistor_source` is `netlist`, resistor rows in `devices.csv` are not
+sufficient for resistor area. Missing resistor geometry can make
+`area_total_p` look abnormally small; treat that as an accounting-invalid
+candidate, not as an area optimization.
+
+Allowed capacitor subcircuits:
+
+```spectre
+C1 N0 N1 BULK cap_vpp_11p5x11p7_m1m4_noshield
+C2 N0 N1 BULK sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield
+```
+
+Capacitor pin order is `c0 c1 b` for
+`cap_vpp_11p5x11p7_m1m4_noshield` and `C0 C1 SUB` for
+`sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield`.
+
+Allowed diode model:
+
+```spectre
+D1 ANODE CATHODE diode_pd2nw_05v5
+```
+
+The installed PDK declarations used for this allowlist are:
+
+```text
+.subckt npn_05v5_W1p00L1p00 c b e s
+.subckt npn_05v5_W1p00L2p00 c b e s
+.subckt pnp_05v5_W0p68L0p68 c b e s
+.subckt pnp_05v5_W3p40L3p40 c b e s
+.subckt res_high_po_5p73 r0 r1 b
+.subckt cap_vpp_11p5x11p7_m1m4_noshield c0 c1 b
+.subckt sky130_fd_pr__cap_vpp_11p5x11p7_m1m4_noshield C0 C1 SUB
+.model diode_pd2nw_05v5 d
+```
 
 OPAMP use is forbidden in every phase, including fallback phases.
 
@@ -353,13 +423,15 @@ that they touch allowed files.
 Verification flow:
 
 1. Top Coordinator receives a candidate proposal.
-2. Reviewer checks hard invariants and patch scope.
+2. Top Coordinator or executor checks patch scope before applying it.
 3. Top Coordinator applies the patch to a candidate workspace or snapshot.
-4. Verifier runs `amptest` no sooner than 30 seconds after the previous
+4. Reviewer checks hard invariants on the assembled candidate artifacts and
+   patched workspace, including DUT netlist syntax and device accounting.
+5. Verifier runs `amptest` no sooner than 30 seconds after the previous
    verification run.
-5. Verifier records all metrics and logs.
-6. Top Coordinator evaluates acceptance rules.
-7. Top Coordinator updates the ledger and state.
+6. Verifier records all metrics and logs.
+7. Top Coordinator evaluates acceptance rules.
+8. Top Coordinator updates the ledger and state.
 
 Verifier output must include:
 
@@ -376,6 +448,11 @@ Verifier output must include:
   "errors": []
 }
 ```
+
+Raw `ppa_metrics.json` reports area under `area_power.area_total_p`. The
+Verifier normalizes this into flat `verification.json` and ledger metrics as
+`area_total_p`. Acceptance uses normalized verifier metrics, not candidate
+claims.
 
 If simulation fails, the candidate is rejected unless the failure is caused by a
 known infrastructure issue. Infrastructure failures must be retried without

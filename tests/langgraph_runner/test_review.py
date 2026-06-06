@@ -9,8 +9,8 @@ SCRATCH = Path(".test_tmp_langgraph_runner") / "review"
 
 VALID_NETLIST = """simulator lang=spectre
 subckt dummy_neural_amp GND VDD VIN VOUT VREF
-Q1 VOUT VIN GND GND sky130_fd_pr_main__npn_05v5
-R1 VDD VOUT sky130_fd_pr_main__res_high_po_5p73 l=5.73u w=0.35u m=10
+Q1 VOUT VIN GND GND npn_05v5_W1p00L1p00
+R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u m=10
 ends dummy_neural_amp
 """
 
@@ -86,7 +86,7 @@ class TestDeterministicReview(unittest.TestCase):
     def test_rejects_opamp_and_behavioral_shortcuts(self):
         root = scratch_case("opamp_and_behavioral_shortcuts")
         netlist = VALID_NETLIST.replace(
-            "Q1 VOUT VIN GND GND sky130_fd_pr_main__npn_05v5",
+            "Q1 VOUT VIN GND GND npn_05v5_W1p00L1p00",
             "XOP VIN VOUT ahdLib_opamp",
         )
         candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
@@ -100,6 +100,100 @@ class TestDeterministicReview(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertIn("forbidden_shortcut", result.errors)
+
+    def test_rejects_stale_sky130_fd_pr_main_alias(self):
+        root = scratch_case("stale_sky130_alias")
+        netlist = VALID_NETLIST.replace(
+            "Q1 VOUT VIN GND GND npn_05v5_W1p00L1p00",
+            "Q1 VOUT VIN GND GND sky130_fd_pr_main__npn_05v5",
+        )
+        candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
+        reviewer = DeterministicReviewer(
+            {"amptest/dummy_neural_amp.scs", "amptest/devices.csv"},
+            "dummy_neural_amp",
+            ["GND", "VDD", "VIN", "VOUT", "VREF"],
+        )
+
+        result = reviewer.review(candidate, workspace, "p1-b001-c01-arch-20260604-231500")
+
+        self.assertFalse(result.passed)
+        self.assertFalse(result.checks["installed_sky130_names"])
+        self.assertIn("stale_sky130_fd_pr_main_alias", result.errors)
+
+    def test_rejects_res_high_po_instance_missing_explicit_geometry(self):
+        root = scratch_case("res_high_po_missing_geometry")
+        netlist = VALID_NETLIST.replace(
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u m=10",
+            "R1 VDD VOUT GND res_high_po_5p73",
+        )
+        candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
+        reviewer = DeterministicReviewer(
+            {"amptest/dummy_neural_amp.scs", "amptest/devices.csv"},
+            "dummy_neural_amp",
+            ["GND", "VDD", "VIN", "VOUT", "VREF"],
+        )
+
+        result = reviewer.review(candidate, workspace, "p1-b001-c01-arch-20260604-231500")
+
+        self.assertFalse(result.passed)
+        self.assertFalse(result.checks["res_high_po_5p73_explicit_lw_m"])
+        self.assertIn("res_high_po_5p73_missing_explicit_lw_or_m", result.errors)
+
+    def test_rejects_res_high_po_instance_missing_multiplier(self):
+        root = scratch_case("res_high_po_missing_multiplier")
+        netlist = VALID_NETLIST.replace(
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u m=10",
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u",
+        )
+        candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
+        reviewer = DeterministicReviewer(
+            {"amptest/dummy_neural_amp.scs", "amptest/devices.csv"},
+            "dummy_neural_amp",
+            ["GND", "VDD", "VIN", "VOUT", "VREF"],
+        )
+
+        result = reviewer.review(candidate, workspace, "p1-b001-c01-arch-20260604-231500")
+
+        self.assertFalse(result.passed)
+        self.assertFalse(result.checks["res_high_po_5p73_explicit_lw_m"])
+        self.assertIn("res_high_po_5p73_missing_explicit_lw_or_m", result.errors)
+
+    def test_rejects_non_r_prefixed_res_high_po_instance_missing_geometry(self):
+        root = scratch_case("non_r_prefixed_res_high_po_missing_geometry")
+        netlist = VALID_NETLIST.replace(
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u m=10",
+            "XRBAD VDD VOUT GND res_high_po_5p73",
+        )
+        candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
+        reviewer = DeterministicReviewer(
+            {"amptest/dummy_neural_amp.scs", "amptest/devices.csv"},
+            "dummy_neural_amp",
+            ["GND", "VDD", "VIN", "VOUT", "VREF"],
+        )
+
+        result = reviewer.review(candidate, workspace, "p1-b001-c01-arch-20260604-231500")
+
+        self.assertFalse(result.passed)
+        self.assertFalse(result.checks["res_high_po_5p73_explicit_lw_m"])
+        self.assertIn("res_high_po_5p73_missing_explicit_lw_or_m", result.errors)
+
+    def test_accepts_res_high_po_multiplier_aliases_used_by_ppa_analyzer(self):
+        root = scratch_case("res_high_po_multiplier_alias")
+        netlist = VALID_NETLIST.replace(
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u m=10",
+            "R1 VDD VOUT GND res_high_po_5p73 l=5u w=5.73u mult=10",
+        )
+        candidate, workspace = self.write_candidate(root, netlist, VALID_DEVICES)
+        reviewer = DeterministicReviewer(
+            {"amptest/dummy_neural_amp.scs", "amptest/devices.csv"},
+            "dummy_neural_amp",
+            ["GND", "VDD", "VIN", "VOUT", "VREF"],
+        )
+
+        result = reviewer.review(candidate, workspace, "p1-b001-c01-arch-20260604-231500")
+
+        self.assertTrue(result.passed)
+        self.assertTrue(result.checks["res_high_po_5p73_explicit_lw_m"])
 
     def test_rejects_opamp_accounting_row_in_devices_csv(self):
         root = scratch_case("opamp_accounting_row_in_devices_csv")

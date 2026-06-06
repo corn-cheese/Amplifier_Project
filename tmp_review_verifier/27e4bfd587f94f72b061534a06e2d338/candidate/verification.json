@@ -1,0 +1,13 @@
+{
+  "candidate_id": "cid",
+  "status": "error",
+  "metrics_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\27e4bfd587f94f72b061534a06e2d338\\candidate\\ppa_metrics.json",
+  "report_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\27e4bfd587f94f72b061534a06e2d338\\candidate\\ppa_report.log",
+  "spectre_logs": [],
+  "performance_nrmse_combined": 1.0,
+  "area_total_p": 0.0,
+  "power_score_basis_w": 0.0,
+  "errors": [
+    "required output not updated by current run: ppa_metrics.json"
+  ]
+}

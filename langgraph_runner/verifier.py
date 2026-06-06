@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import math
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -16,6 +19,7 @@ from .schemas import VerificationResult
 STDOUT_LOG = "verifier_stdout.log"
 STDERR_LOG = "verifier_stderr.log"
 VERIFICATION_JSON = "verification.json"
+PPA_RUN_OUTPUTS = ("ppa_metrics.json", "ppa_report.log", "spectre_ac.log", "spectre_tran.log")
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,7 @@ class Verifier:
             output_dir.mkdir(parents=True, exist_ok=True)
             self._wait_for_min_interval()
             output_snapshots = self._snapshot_outputs(output_dir)
+            ppa_run_snapshots = self._snapshot_ppa_run_outputs(local_candidate_dir)
             try:
                 command = self.command.format(
                     candidate_id=candidate_id,
@@ -76,6 +81,10 @@ class Verifier:
                     output_dir,
                     f"verifier command exited with status {completed.returncode}",
                 )
+
+            ppa_result = self._normalize_ppa_outputs(candidate_id, local_candidate_dir, output_dir, ppa_run_snapshots)
+            if ppa_result is not None:
+                return ppa_result
 
             missing_outputs = self._missing_required_outputs(output_dir)
             if missing_outputs:
@@ -171,6 +180,105 @@ class Verifier:
             return output_dir / path
         return path
 
+    def _snapshot_ppa_run_outputs(self, local_candidate_dir: Path) -> dict[str, _OutputSnapshot | None]:
+        run_dir = local_candidate_dir / "run"
+        return {name: _file_snapshot(run_dir / name) for name in PPA_RUN_OUTPUTS}
+
+    def _normalize_ppa_outputs(
+        self,
+        candidate_id: str,
+        local_candidate_dir: Path,
+        output_dir: Path,
+        ppa_run_snapshots: dict[str, _OutputSnapshot | None],
+    ) -> VerificationResult | None:
+        run_dir = local_candidate_dir / "run"
+        if not run_dir.is_dir():
+            return None
+        output_dir.mkdir(parents=True, exist_ok=True)
+        copied_logs = []
+        for name in PPA_RUN_OUTPUTS:
+            source = run_dir / name
+            if not source.exists():
+                continue
+            if _file_snapshot(source) == ppa_run_snapshots.get(name):
+                continue
+            target = output_dir / name
+            shutil.copy2(source, target)
+            if name.startswith("spectre_"):
+                copied_logs.append(str(target))
+        verification_path = output_dir / VERIFICATION_JSON
+        metrics_path = output_dir / "ppa_metrics.json"
+        report_path = output_dir / "ppa_report.log"
+        if not metrics_path.exists() or not report_path.exists():
+            return None
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except OSError:
+            return None
+        except json.JSONDecodeError as exc:
+            return self._ppa_metrics_error(candidate_id, output_dir, copied_logs, f"invalid ppa_metrics.json: {exc}")
+        area_power = metrics.get("area_power") if isinstance(metrics, dict) else {}
+        if not isinstance(area_power, dict):
+            area_power = {}
+        metric_errors = []
+        performance_nrmse_combined = _required_finite_metric(
+            metrics.get("performance_nrmse_combined") if isinstance(metrics, dict) else None,
+            "performance_nrmse_combined",
+            metric_errors,
+        )
+        area_total_p = _required_finite_metric(
+            area_power.get("area_total_p"),
+            "area_power.area_total_p",
+            metric_errors,
+        )
+        power_score_basis_w = _required_finite_metric(
+            area_power.get("power_score_basis_w"),
+            "area_power.power_score_basis_w",
+            metric_errors,
+        )
+        if metric_errors:
+            return self._ppa_metrics_error(
+                candidate_id,
+                output_dir,
+                copied_logs,
+                "invalid ppa_metrics.json: " + ", ".join(metric_errors),
+            )
+        result = VerificationResult(
+            candidate_id=candidate_id,
+            status="passed",
+            metrics_path=str(metrics_path),
+            report_path=str(report_path),
+            spectre_logs=copied_logs,
+            performance_nrmse_combined=performance_nrmse_combined,
+            area_total_p=area_total_p,
+            power_score_basis_w=power_score_basis_w,
+            errors=[],
+        )
+        verification_path.write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        return None
+
+    def _ppa_metrics_error(
+        self,
+        candidate_id: str,
+        output_dir: Path,
+        spectre_logs: list[str],
+        message: str,
+    ) -> VerificationResult:
+        result = VerificationResult(
+            candidate_id=candidate_id,
+            status="error",
+            metrics_path=str(output_dir / "ppa_metrics.json"),
+            report_path=str(output_dir / "ppa_report.log"),
+            spectre_logs=spectre_logs,
+            performance_nrmse_combined=0.0,
+            area_total_p=0.0,
+            power_score_basis_w=0.0,
+            errors=[message],
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / VERIFICATION_JSON).write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+        return result
+
     def _error(self, candidate_id: str, output_dir: Path, message: str) -> VerificationResult:
         result = VerificationResult(
             candidate_id=candidate_id,
@@ -207,6 +315,24 @@ def _file_snapshot(path: Path) -> _OutputSnapshot | None:
     except FileNotFoundError:
         return None
     return _OutputSnapshot(mtime_ns=stat.st_mtime_ns, size=stat.st_size)
+
+
+def _required_finite_metric(value: object, name: str, errors: list[str]) -> float:
+    if value is None:
+        errors.append(f"{name} is missing or null")
+        return 0.0
+    if isinstance(value, bool):
+        errors.append(f"{name} is not a finite number")
+        return 0.0
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        errors.append(f"{name} is not a finite number")
+        return 0.0
+    if not math.isfinite(parsed):
+        errors.append(f"{name} is not a finite number")
+        return 0.0
+    return parsed
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:

@@ -455,6 +455,12 @@ Rules:
 Each `codex exec` call receives a constrained context package rather than an
 open-ended instruction to inspect the whole repository.
 
+The context package isolates task inputs and expected artifacts, but it does
+not imply a separate Codex CLI authentication home. The `codex_exec` backend
+inherits the operator's existing CLI environment and authentication so that
+non-interactive runs use the same configured Codex CLI identity as the shell
+that launches the runner.
+
 Suggested context package:
 
 ```text

@@ -1,0 +1,13 @@
+{
+  "candidate_id": "cid",
+  "status": "error",
+  "metrics_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\09725709df4847e59e023b013630defc\\candidate\\ppa_metrics.json",
+  "report_path": "D:\\Codex\\Amplifier\\tmp_review_verifier\\09725709df4847e59e023b013630defc\\candidate\\ppa_report.log",
+  "spectre_logs": [],
+  "performance_nrmse_combined": 1.0,
+  "area_total_p": 0.0,
+  "power_score_basis_w": 0.0,
+  "errors": [
+    "invalid verifier command template: '\\\\\"performance_nrmse_combined\\\\\"'"
+  ]
+}
