@@ -1,0 +1,14 @@
+{
+  "candidate_id": "q5-bp-dual-input-hp-output-sink-trial-0066",
+  "status": "passed",
+  "metrics_path": "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-bandpass-dual-input-highpass-output-sink\\q5-dual-input-hp-rq4fbhi-cp1lo-2000\\trial_0066\\ppa_metrics.json",
+  "report_path": "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-bandpass-dual-input-highpass-output-sink\\q5-dual-input-hp-rq4fbhi-cp1lo-2000\\trial_0066\\ppa_report.log",
+  "spectre_logs": [
+    "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-bandpass-dual-input-highpass-output-sink\\q5-dual-input-hp-rq4fbhi-cp1lo-2000\\trial_0066\\spectre_ac.log",
+    "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-bandpass-dual-input-highpass-output-sink\\q5-dual-input-hp-rq4fbhi-cp1lo-2000\\trial_0066\\spectre_tran.log"
+  ],
+  "performance_nrmse_combined": 0.06893371328169394,
+  "area_total_p": 8.905876372398277e+17,
+  "power_score_basis_w": 0.0007083683014000049,
+  "errors": []
+}

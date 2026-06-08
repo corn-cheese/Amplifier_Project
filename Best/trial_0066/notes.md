@@ -1,0 +1,9 @@
+# Q5 Bandpass Targeted Trial
+
+candidate_id: q5-bp-dual-input-hp-output-sink-trial-0066
+family: dual-input-highpass-output-sink
+params: {"CE1_m": 56767737.54698835, "CE2_m": 58193740.23711879, "CIN1_m": 3093904.4634687537, "CIN2_m": 590810.6273686982, "CP1_m": 2090.263112230686, "CP2_m": 1814.499094194637, "CP3_m": 7981.040583976579, "RBIN1_l": 6096.806101987196, "RBIN2_l": 1707.8676891244245, "RBUF_l": 4882.917067382928, "RQ4FB_l": 14053.578184897653}
+objective: {"failure_modes": [], "objective": 0.06893371328169394, "penalties": {}, "reason": "passed", "rejected": false}
+
+Q1 input is rewired through B1/B2 using two cascaded CIN/RBIN high-pass sections.
+Raw performance_nrmse_combined is the optimization objective; collapse checks remain hard rejects.

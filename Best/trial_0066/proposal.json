@@ -1,0 +1,25 @@
+{
+  "candidate_id": "q5-bp-dual-input-hp-output-sink-trial-0066",
+  "phase": "phase1_performance",
+  "agent": "optimizer",
+  "hypothesis": "Add two cascaded input coupling high-pass sections while preserving the Q5 output sink.",
+  "primary_objective": "performance",
+  "changed_blocks": [
+    "dual_input_coupling_highpass",
+    "q5_output_active_sink",
+    "low_cutoff_order_shaping",
+    "distributed_pole_zero_shaping",
+    "device_accounting"
+  ],
+  "files_touched": [
+    "amptest/dummy_neural_amp.scs",
+    "amptest/devices.csv"
+  ],
+  "expected_effect": {
+    "performance_nrmse_combined": "decrease",
+    "area_total_p": "increase",
+    "power_score_basis_w": "unknown"
+  },
+  "risk": "Two input high-pass sections add low-frequency order but can over-attenuate the passband or bias Q1 away from its useful region.",
+  "patch": "diff --git a/amptest/dummy_neural_amp.scs b/amptest/dummy_neural_amp.scs\n--- a/amptest/dummy_neural_amp.scs\n+++ b/amptest/dummy_neural_amp.scs\n@@ -2,32 +2,36 @@\n \n subckt dummy_neural_amp GND VDD VIN VOUT VREF\n RVREF VIN VREF GND res_high_po_5p73 l=39409.1u w=5.73u m=1\n+CIN1 VIN B1 GND cap_vpp_11p5x11p7_m1m4_noshield m=3093904\n+RBIN1 B1 VREF GND res_high_po_5p73 l=6096.81u w=5.73u m=1\n+CIN2 B1 B2 GND cap_vpp_11p5x11p7_m1m4_noshield m=590811\n+RBIN2 B2 VREF GND res_high_po_5p73 l=1707.87u w=5.73u m=1\n \n RC1 VDD N1 GND res_high_po_5p73 l=642.248u w=5.73u m=1\n-Q1 N1 VIN E1 GND npn_05v5_W1p00L2p00\n+Q1 N1 B2 E1 GND npn_05v5_W1p00L2p00\n RE1U E1 E1B GND res_high_po_5p73 l=23.6296u w=5.73u m=1\n RE1B E1B GND GND res_high_po_5p73 l=806.725u w=5.73u m=1\n-CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=26168493\n+CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=56767738\n \n RC2 VDD NDRV GND res_high_po_5p73 l=471.255u w=5.73u m=1\n RQ4U VDD BQ4 GND res_high_po_5p73 l=675.815u w=5.73u m=1\n RQ4R BQ4 VREF GND res_high_po_5p73 l=1255.49u w=5.73u m=1\n-RQ4FB VOUT BQ4 GND res_high_po_5p73 l=7693.91u w=5.73u m=1\n+RQ4FB VOUT BQ4 GND res_high_po_5p73 l=14053.6u w=5.73u m=1\n REQ4 VDD Q4E GND res_high_po_5p73 l=118.244u w=5.73u m=1\n Q4 NDRV BQ4 Q4E VDD pnp_05v5_W3p40L3p40\n Q2 NDRV N1 E2 GND npn_05v5_W1p00L2p00\n RE2U E2 E2B GND res_high_po_5p73 l=33.4817u w=5.73u m=1\n RE2B E2B GND GND res_high_po_5p73 l=639.455u w=5.73u m=1\n-CE2 E2B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=47734195\n+CE2 E2B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=58193740\n \n Q3 VDD NDRV VOUT GND npn_05v5_W1p00L1p00\n-RBUF VOUT GND GND res_high_po_5p73 l=2999.61u w=5.73u m=1\n+RBUF VOUT GND GND res_high_po_5p73 l=4882.92u w=5.73u m=1\n RQ5U VREF BQ5 GND res_high_po_5p73 l=5588.01u w=5.73u m=1\n RQ5B BQ5 GND GND res_high_po_5p73 l=1191.29u w=5.73u m=1\n REQ5 EQ5 GND GND res_high_po_5p73 l=3754.37u w=5.73u m=1\n Q5 VOUT BQ5 EQ5 GND npn_05v5_W1p00L1p00\n \n-CP1 N1 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=2026\n-CP2 NDRV GND GND cap_vpp_11p5x11p7_m1m4_noshield m=522\n-CP3 VOUT GND GND cap_vpp_11p5x11p7_m1m4_noshield m=3539\n+CP1 N1 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=2090\n+CP2 NDRV GND GND cap_vpp_11p5x11p7_m1m4_noshield m=1814\n+CP3 VOUT GND GND cap_vpp_11p5x11p7_m1m4_noshield m=7981\n ends dummy_neural_amp\ndiff --git a/amptest/devices.csv b/amptest/devices.csv\n--- a/amptest/devices.csv\n+++ b/amptest/devices.csv\n@@ -10,17 +10,21 @@\n RC2,resistor,1,,,,1,471.255u,5.73u,,,true\n RQ4U,resistor,1,,,,1,675.815u,5.73u,,,true\n RQ4R,resistor,1,,,,1,1255.49u,5.73u,,,true\n-RQ4FB,resistor,1,,,,1,7693.91u,5.73u,,,true\n+RQ4FB,resistor,1,,,,1,14053.6u,5.73u,,,true\n REQ4,resistor,1,,,,1,118.244u,5.73u,,,true\n RE2U,resistor,1,,,,1,33.4817u,5.73u,,,true\n RE2B,resistor,1,,,,1,639.455u,5.73u,,,true\n-RBUF,resistor,1,,,,1,2999.61u,5.73u,,,true\n-CE1,capacitor,1,11.5u,11.7u,26168493,,,,,,true\n-CE2,capacitor,1,11.5u,11.7u,47734195,,,,,,true\n-CP1,capacitor,1,11.5u,11.7u,2026,,,,,,true\n-CP2,capacitor,1,11.5u,11.7u,522,,,,,,true\n-CP3,capacitor,1,11.5u,11.7u,3539,,,,,,true\n+RBUF,resistor,1,,,,1,4882.92u,5.73u,,,true\n+CE1,capacitor,1,11.5u,11.7u,56767738,,,,,,true\n+CE2,capacitor,1,11.5u,11.7u,58193740,,,,,,true\n+CP1,capacitor,1,11.5u,11.7u,2090,,,,,,true\n+CP2,capacitor,1,11.5u,11.7u,1814,,,,,,true\n+CP3,capacitor,1,11.5u,11.7u,7981,,,,,,true\n Q5,npn,1,1.00u,1.00u,1,,,,10meg,1.0000,true\n RQ5U,resistor,1,,,,1,5588.01u,5.73u,,,true\n RQ5B,resistor,1,,,,1,1191.29u,5.73u,,,true\n REQ5,resistor,1,,,,1,3754.37u,5.73u,,,true\n+CIN1,capacitor,1,11.5u,11.7u,3093904,,,,,,true\n+RBIN1,resistor,1,,,,1,6096.81u,5.73u,,,true\n+CIN2,capacitor,1,11.5u,11.7u,590811,,,,,,true\n+RBIN2,resistor,1,,,,1,1707.87u,5.73u,,,true\n"
+}

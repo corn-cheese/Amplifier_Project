@@ -1,0 +1,62 @@
+design: veriloga_dummy_neural_amp
+
+[Area / Power]
+area_total_p: 8.90588e+17
+static_current_a: 0 A
+power_dc_w: 0 W
+power_dynamic_w: 0.000708368 W
+power_score_basis_w: 0.000708368 W
+
+[Area Breakdown]
+Q1: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q2: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q3: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+Q4: type=pnp, source=devices_csv, count=1, netlist_m=1, area_each_p=11.56, area_total_p=11.56
+CE1: type=capacitor, source=devices_csv, count=1, netlist_m=5.67677e+07, area_each_p=7.6381e+09, area_total_p=4.33598e+17
+CE2: type=capacitor, source=devices_csv, count=1, netlist_m=5.81937e+07, area_each_p=7.82997e+09, area_total_p=4.55655e+17
+CP1: type=capacitor, source=devices_csv, count=1, netlist_m=2090, area_each_p=281210, area_total_p=5.87728e+08
+CP2: type=capacitor, source=devices_csv, count=1, netlist_m=1814, area_each_p=244074, area_total_p=4.4275e+08
+CP3: type=capacitor, source=devices_csv, count=1, netlist_m=7981, area_each_p=1.07384e+06, area_total_p=8.57035e+09
+Q5: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+CIN1: type=capacitor, source=devices_csv, count=1, netlist_m=3.0939e+06, area_each_p=4.16285e+08, area_total_p=1.28795e+15
+CIN2: type=capacitor, source=devices_csv, count=1, netlist_m=590811, area_each_p=7.94936e+07, area_total_p=4.69657e+13
+RVREF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=225814, area_total_p=225814
+RBIN1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=34934.7, area_total_p=34934.7
+RBIN2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=9786.1, area_total_p=9786.1
+RC1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3680.08, area_total_p=3680.08
+RE1U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=135.398, area_total_p=135.398
+RE1B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=4622.53, area_total_p=4622.53
+RC2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=2700.29, area_total_p=2700.29
+RQ4U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3872.42, area_total_p=3872.42
+RQ4R: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=7193.96, area_total_p=7193.96
+RQ4FB: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=80527.1, area_total_p=80527.1
+REQ4: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=677.538, area_total_p=677.538
+RE2U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=191.85, area_total_p=191.85
+RE2B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3664.08, area_total_p=3664.08
+RBUF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=27979.1, area_total_p=27979.1
+RQ5U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=32019.3, area_total_p=32019.3
+RQ5B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=6826.09, area_total_p=6826.09
+REQ5: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=21512.5, area_total_p=21512.5
+
+[AC Performance]
+ac_nrmse_db: 0.127619
+ac_rmse_db: 27.5551 dB
+midband_gain_vv: 84.5239 V/V
+midband_gain_db: 38.5396 dB
+lower_3db_hz: 55.6728 Hz
+upper_3db_hz: 20610.5 Hz
+passband_ripple_db: 11.9019 dB
+attenuation_low_probe_db_rel_mid: -68.1428 dB
+attenuation_high_probe_db_rel_mid: -44.3346 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 0.0102488
+tran_ac_rmse_v: 0.000724599 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 2.7371 V
+vout_ac_peak_to_peak_v: 0.199441 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.000530177
+thd_db: -65.5116 dB
+
+performance_nrmse_combined: 0.0689337
