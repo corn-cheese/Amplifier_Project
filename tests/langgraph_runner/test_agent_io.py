@@ -216,6 +216,98 @@ class TestAgentIO(unittest.TestCase):
         self.assertIn("res_high_po_5p73 resistor instances must include explicit l=, w=, and m=", context_text)
         self.assertIn("avoid corrupt patches", context_text)
 
+    def test_context_package_summarizes_recent_q4_failure_modes(self):
+        root = scratch_case("context_package_q4_failure_feedback")
+        assignment = CandidateAssignment(
+            candidate_id="p1-b053-c01-arch-20260606-170000",
+            batch_id="p1-b053",
+            role="architecture",
+            phase="phase1_performance",
+            primary_objective="performance",
+        )
+        recent_ledger = [
+            {
+                "candidate_id": "p1-b052-c01-arch-20260606-163000",
+                "status": "rejected",
+                "reason": "Q4 active load added at NDRV but acceptance_gate_failed",
+                "metrics": {
+                    "performance_nrmse_combined": 0.8,
+                    "ac": {"midband_gain_db": 20.0, "upper_3db_hz": 1000.0},
+                    "tran": {"vout_peak_to_peak_v": 0.001},
+                },
+            }
+        ]
+
+        package = write_context_package(
+            run_dir=root / "runs" / "run-1",
+            agent_call_id="call-1",
+            assignment=assignment,
+            contract_excerpt="Only DUT and devices.csv may change.",
+            state_summary={"current_phase": "phase1_performance"},
+            recent_ledger=recent_ledger,
+            dut_netlist_path="amptest/dummy_neural_amp.scs",
+            devices_csv_path="amptest/devices.csv",
+            base_dut=root / "dummy_neural_amp.scs",
+            base_devices=root / "devices.csv",
+        )
+
+        context_text = (package / "context.md").read_text(encoding="utf-8")
+        self.assertIn("Failure modes: gain_collapse, bandwidth_collapse, output_swing_collapse", context_text)
+        self.assertIn("Q4 addition likely collapsed NDRV/Q3 drive", context_text)
+        self.assertIn("preserve baseline Q1/Q2/Q3 signal path", context_text)
+
+    def test_context_package_includes_macro_topology_directive_and_brief(self):
+        root = scratch_case("context_package_macro_topology")
+        assignment = CandidateAssignment(
+            candidate_id="p1-b028-c03-arch-20260606-133000",
+            batch_id="p1-b028",
+            role="architecture",
+            phase="phase1_performance",
+            primary_objective="performance",
+            macro_topology_directive={
+                "stage_count": 3,
+                "signal_path_class": "input_bias_gain_output_buffer",
+                "feedback_class": "local_degeneration_or_passive_feedback",
+                "topology_intent": "input/bias stage plus gain stage plus explicit output/buffer stage",
+            },
+            avoid_patterns=[
+                "same 2-stage NPN common-emitter retune",
+                "resistor/capacitor multiplier-only edits",
+            ],
+        )
+
+        package = write_context_package(
+            run_dir=root / "runs" / "run-1",
+            agent_call_id="call-1",
+            assignment=assignment,
+            contract_excerpt="Only DUT and devices.csv may change.",
+            state_summary={"batch_no": 27},
+            recent_ledger=[],
+            dut_netlist_path="amptest/dummy_neural_amp.scs",
+            devices_csv_path="amptest/devices.csv",
+            base_dut=root / "dummy_neural_amp.scs",
+            base_devices=root / "devices.csv",
+            topology_brief=(
+                "Recent attempts converged on a 2-stage NPN CE family with "
+                "bias branch retunes and bypass/shunt capacitor retunes."
+            ),
+        )
+
+        context_text = (package / "context.md").read_text(encoding="utf-8")
+        self.assertIn("## Macro Topology Directive", context_text)
+        self.assertIn("stage_count: 3", context_text)
+        self.assertIn("signal_path_class: input_bias_gain_output_buffer", context_text)
+        self.assertIn("feedback_class: local_degeneration_or_passive_feedback", context_text)
+        self.assertIn("This candidate must be a macro-topology change, not a local value retune.", context_text)
+        self.assertIn("same 2-stage NPN common-emitter retune", context_text)
+        self.assertIn("resistor/capacitor multiplier-only edits", context_text)
+        self.assertIn("Recent attempts converged on a 2-stage NPN CE family", context_text)
+        proposal_marker = "```json\n"
+        proposal_start = context_text.index(proposal_marker) + len(proposal_marker)
+        proposal_end = context_text.index("\n```", proposal_start)
+        proposal_contract = json.loads(context_text[proposal_start:proposal_end])
+        self.assertNotIn("topology_family", proposal_contract)
+
     def test_agent_runner_invokes_codex_exec_and_logs_streams(self):
         root = scratch_case("agent_runner")
         context_text = "Review the assigned circuit and write proposal artifacts.\n"

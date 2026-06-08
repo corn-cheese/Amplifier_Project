@@ -31,6 +31,8 @@ class RunnerConfig(BaseModel):
     dut_netlist: str
     devices_csv: str
     amptest_config: str
+    topology_brief_path: str = "docs/topology-exploration-brief.md"
+    candidate_base_workspace: str | None = None
     candidate_generation_batch_size: int = Field(gt=0)
     max_active_primes_per_subagent: int = Field(gt=0)
     max_total_primes_per_subagent: int = Field(gt=0)

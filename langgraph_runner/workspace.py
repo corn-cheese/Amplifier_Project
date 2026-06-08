@@ -30,6 +30,32 @@ def _required_workspace_files(workspace: Path) -> tuple[Path, Path]:
     return workspace / DUT_NETLIST, workspace / DEVICES_CSV
 
 
+def resolve_candidate_base_files(repo_root: Path, config: dict) -> tuple[Path, Path]:
+    base_workspace = str(config.get("candidate_base_workspace") or "").strip()
+    if not base_workspace:
+        return (
+            _repo_path(repo_root, str(config["dut_netlist"])),
+            _repo_path(repo_root, str(config["devices_csv"])),
+        )
+
+    workspace = _repo_path(repo_root, base_workspace)
+    return (
+        workspace / Path(str(config["dut_netlist"])).name,
+        workspace / Path(str(config["devices_csv"])).name,
+    )
+
+
+def _repo_path(repo_root: Path, value: str) -> Path:
+    repo = repo_root.resolve()
+    path = Path(value)
+    resolved = path.resolve() if path.is_absolute() else (repo / path).resolve()
+    try:
+        resolved.relative_to(repo)
+    except ValueError as exc:
+        raise ValueError(f"path_outside_repo: {value}") from exc
+    return resolved
+
+
 def _best_effort_unlink(path: Path) -> None:
     try:
         path.unlink()

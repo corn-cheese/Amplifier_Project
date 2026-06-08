@@ -539,6 +539,44 @@ class TestGraph(unittest.TestCase):
         self.assertIn("Allowed file changes: circuits/custom_amp.scs and accounting/custom_devices.csv only.", context_text)
         self.assertNotIn("Allowed file changes: amptest/dummy_neural_amp.scs and amptest/devices.csv only.", context_text)
 
+    def test_spawn_subagents_uses_candidate_base_workspace_for_context_base_files(self):
+        repo_root = scratch_root("spawn_subagents_candidate_base_workspace")
+        config_path = write_workflow_fixture(repo_root, batch_size=1)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        base_workspace = repo_root / "automation_artifacts" / "workspaces" / "p1-b028-c03-arch-20260606-135953"
+        base_workspace.mkdir(parents=True, exist_ok=True)
+        (base_workspace / "dummy_neural_amp.scs").write_text("pinned b028 netlist\n", encoding="utf-8")
+        (base_workspace / "devices.csv").write_text("pinned,b028,devices\n", encoding="utf-8")
+        config["candidate_base_workspace"] = "automation_artifacts/workspaces/p1-b028-c03-arch-20260606-135953"
+        paths = graph_module.ArtifactPaths(repo_root=repo_root, artifact_root=repo_root / "automation_artifacts")
+        runner_state = StateStore(paths, repo_root / "docs" / "contract.md").initialize()
+        fake_runner = NoOutputAgentRunner()
+
+        with patch("langgraph_runner.graph.AgentRunner", return_value=fake_runner):
+            graph_module.spawn_subagents_node(
+                {
+                    "repo_root": str(repo_root),
+                    "run_id": "manual",
+                    "artifact_root": str(paths.artifact_root),
+                    "contract_path": str(repo_root / "docs" / "contract.md"),
+                    "runner_config": config,
+                    "runner_state": runner_state.model_dump(mode="json"),
+                    "batch_assignments": [
+                        {
+                            "candidate_id": "p1-b001-c01-arch-20260605-120000",
+                            "batch_id": "p1-b001",
+                            "role": "architecture",
+                            "phase": "phase1_performance",
+                            "primary_objective": "performance",
+                        }
+                    ],
+                }
+            )
+
+        base_files = fake_runner.calls[0].context_path / "base_files"
+        self.assertEqual((base_files / "dummy_neural_amp.scs").read_text(encoding="utf-8"), "pinned b028 netlist\n")
+        self.assertEqual((base_files / "devices.csv").read_text(encoding="utf-8"), "pinned,b028,devices\n")
+
     def test_deterministic_review_uses_amptest_config_dut_contract(self):
         repo_root = scratch_root("deterministic_review_amptest_config")
         candidate_id = "p1-b001-c01-arch-20260605-120000"

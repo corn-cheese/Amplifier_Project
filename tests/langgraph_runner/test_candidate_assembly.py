@@ -114,6 +114,49 @@ class TestCandidateAssembly(unittest.TestCase):
         self.assertIn("R1 VDD VOUT 20k", (paths.workspace_dir(candidate_id) / "dummy_neural_amp.scs").read_text(encoding="utf-8"))
         self.assertIn("R1,resistor,2,true", (paths.workspace_dir(candidate_id) / "devices.csv").read_text(encoding="utf-8"))
 
+    def test_candidate_base_workspace_is_used_as_patch_source(self):
+        root = scratch_case("candidate_base_workspace_source")
+        config = write_fixture_repo(root)
+        (root / "amptest" / "dummy_neural_amp.scs").write_text(
+            "simulator lang=spectre\n"
+            "subckt dummy_neural_amp GND VDD VIN VOUT VREF\n"
+            "R1 VDD VOUT 5k\n"
+            "ends dummy_neural_amp\n",
+            encoding="utf-8",
+        )
+        base_workspace = root / "automation_artifacts" / "workspaces" / "p1-b028-c03-arch-20260606-135953"
+        base_workspace.mkdir(parents=True, exist_ok=True)
+        (base_workspace / "dummy_neural_amp.scs").write_text(
+            "simulator lang=spectre\n"
+            "subckt dummy_neural_amp GND VDD VIN VOUT VREF\n"
+            "R1 VDD VOUT 10k\n"
+            "ends dummy_neural_amp\n",
+            encoding="utf-8",
+        )
+        (base_workspace / "devices.csv").write_text(
+            "name,type,count,include_in_ppa\n"
+            "R1,resistor,1,true\n",
+            encoding="utf-8",
+        )
+        config["candidate_base_workspace"] = "automation_artifacts/workspaces/p1-b028-c03-arch-20260606-135953"
+        paths = ArtifactPaths(repo_root=root, artifact_root=root / "automation_artifacts")
+        candidate_id = "p1-b001-c01-arch-20260605-120000"
+        output = root / f"agent-output-{uuid.uuid4().hex}"
+        write_output(output, candidate_id)
+        parsed = parse_subagent_output(output, candidate_id, agent_call_id="call-1")
+        assignment = {
+            "candidate_id": candidate_id,
+            "batch_id": "p1-b001",
+            "role": "architecture",
+            "phase": "phase1_performance",
+            "primary_objective": "performance",
+        }
+
+        result = CandidateAssembler(paths=paths, repo_root=root, config=config).assemble(assignment, parsed)
+
+        self.assertEqual(result.status, "assembled", result.errors)
+        self.assertIn("R1 VDD VOUT 20k", (paths.workspace_dir(candidate_id) / "dummy_neural_amp.scs").read_text(encoding="utf-8"))
+
     def test_assignment_echo_mismatch_marks_candidate_error(self):
         root = scratch_case("assignment_echo_mismatch")
         config = write_fixture_repo(root)

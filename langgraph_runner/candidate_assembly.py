@@ -9,7 +9,7 @@ from typing import Any
 from .agent_errors import AGENT_EXECUTION_ERROR_CLASSES
 from .agent_outputs import ParsedSubagentOutput
 from .artifacts import ArtifactPaths, _safe_fragment
-from .workspace import CandidateWorkspace
+from .workspace import CandidateWorkspace, resolve_candidate_base_files
 
 
 @dataclass(frozen=True)
@@ -68,10 +68,11 @@ class CandidateAssembler:
             shutil.copy2(parsed_output.proposal_path, candidate_dir / "proposal.json")
             shutil.copy2(parsed_output.patch_path, candidate_dir / "patch.diff")
             shutil.copy2(parsed_output.notes_path, candidate_dir / "notes.md")
+            base_dut, base_devices = resolve_candidate_base_files(self.repo_root, self.config)
             workspace_dir = self.workspace.create(
                 candidate_id,
-                _repo_path(self.repo_root, self.config["dut_netlist"]),
-                _repo_path(self.repo_root, self.config["devices_csv"]),
+                base_dut,
+                base_devices,
                 _repo_path(self.repo_root, self.config["amptest_config"]),
             )
             patch_text = parsed_output.patch_path.read_text(encoding="utf-8")

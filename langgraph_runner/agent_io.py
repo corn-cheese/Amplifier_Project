@@ -50,6 +50,7 @@ def write_context_package(
     devices_csv_path: str,
     base_dut: Path,
     base_devices: Path,
+    topology_brief: str | None = None,
 ) -> Path:
     package = run_dir / "agent_calls" / _safe_fragment(agent_call_id)
     base_files = package / "base_files"
@@ -83,6 +84,7 @@ def write_context_package(
         "patch": "same unified diff text as output/patch.diff",
     }
     feedback_lines = _recent_verification_feedback_lines(state_summary, recent_ledger)
+    macro_topology_lines = _macro_topology_directive_lines(assignment, topology_brief)
     context = "\n".join(
         [
             f"# Agent Context: {assignment.role}",
@@ -102,6 +104,7 @@ def write_context_package(
             "",
             "Write required files under output/ relative to the current context directory.",
             "",
+            *macro_topology_lines,
             *feedback_lines,
             "## Candidate Artifact Contract",
             "You must produce a real candidate by writing all three required files. Prose-only answers are invalid; stdout or chat text is not a candidate artifact.",
@@ -145,6 +148,36 @@ def write_context_package(
     return package
 
 
+def _macro_topology_directive_lines(assignment: CandidateAssignment, topology_brief: str | None) -> list[str]:
+    directive = assignment.macro_topology_directive
+    if not directive:
+        return []
+
+    lines = [
+        "## Macro Topology Directive",
+        "",
+        "This candidate must be a macro-topology change, not a local value retune.",
+        "Follow the assigned stage count, signal path class, and feedback class when writing the DUT netlist.",
+        "This is prompt-only guidance; the deterministic reviewer will not infer or validate semantic stage count.",
+        "",
+    ]
+    for key in ("stage_count", "signal_path_class", "feedback_class", "topology_intent"):
+        if key in directive:
+            lines.append(f"- {key}: {directive[key]}")
+
+    avoid_patterns = assignment.avoid_patterns or []
+    if avoid_patterns:
+        lines.extend(["", "Forbidden recent patterns for this candidate:"])
+        lines.extend(f"- {pattern}" for pattern in avoid_patterns)
+
+    brief = (topology_brief or "").strip()
+    if brief:
+        lines.extend(["", "Brief summary of previous attempts:", brief])
+
+    lines.append("")
+    return lines
+
+
 def _recent_verification_feedback_lines(state_summary: dict, recent_ledger: list[dict]) -> list[str]:
     failures = [
         row
@@ -179,6 +212,11 @@ def _recent_verification_feedback_lines(state_summary: dict, recent_ledger: list
         lines.append(summary)
         if metrics_text:
             lines.append(f"  - Metrics: {metrics_text}")
+        failure_modes = _classify_metrics_failure(metrics if isinstance(metrics, dict) else {})
+        if failure_modes:
+            lines.append(f"  - Failure modes: {', '.join(failure_modes)}")
+        if _q4_ndrv_drive_collapse_hint(reason, failure_modes):
+            lines.append("  - Q4 addition likely collapsed NDRV/Q3 drive; preserve baseline Q1/Q2/Q3 signal path.")
 
     lines.extend(
         [
@@ -197,12 +235,58 @@ def _recent_verification_feedback_lines(state_summary: dict, recent_ledger: list
 
 
 def _format_feedback_metrics(metrics: dict) -> str:
-    ordered_names = ["performance_nrmse_combined", "area_total_p", "power_score_basis_w"]
+    ordered_names = ["performance_nrmse_combined", "midband_gain_db", "upper_3db_hz", "vout_peak_to_peak_v", "area_total_p", "power_score_basis_w"]
     parts = []
     for name in ordered_names:
-        if name in metrics and metrics[name] is not None:
-            parts.append(f"{name}={metrics[name]}")
+        value = metrics.get(name)
+        if value is None:
+            value = _nested_metric(metrics, name)
+        if value is not None:
+            parts.append(f"{name}={value}")
     return ", ".join(parts)
+
+
+def _classify_metrics_failure(metrics: dict) -> list[str]:
+    failures = []
+    gain = _finite_metric(_nested_metric(metrics, "midband_gain_db"))
+    upper = _finite_metric(_nested_metric(metrics, "upper_3db_hz"))
+    swing = _finite_metric(_nested_metric(metrics, "vout_peak_to_peak_v"))
+    if gain is not None and gain < 35.0:
+        failures.append("gain_collapse")
+    if upper is not None and upper < 20000.0:
+        failures.append("bandwidth_collapse")
+    if swing is not None and swing < 0.02:
+        failures.append("output_swing_collapse")
+    return failures
+
+
+def _q4_ndrv_drive_collapse_hint(reason: str, failure_modes: list[str]) -> bool:
+    reason_lower = reason.lower()
+    has_q4_context = "q4" in reason_lower or "ndrv" in reason_lower or "active load" in reason_lower
+    drive_failures = {"gain_collapse", "output_swing_collapse"}
+    return has_q4_context and bool(drive_failures.intersection(failure_modes))
+
+
+def _nested_metric(metrics: dict, name: str):
+    if name in metrics:
+        return metrics[name]
+    for parent in ("ac", "tran", "area_power"):
+        section = metrics.get(parent)
+        if isinstance(section, dict) and name in section:
+            return section[name]
+    return None
+
+
+def _finite_metric(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):
+        return None
+    return parsed
 
 
 class AgentRunner:

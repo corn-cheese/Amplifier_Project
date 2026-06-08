@@ -23,7 +23,7 @@ from .review import DeterministicReviewer
 from .schemas import AgentRole, CandidateStatus, LedgerEntry, Phase, ReviewResult, RunnerState, TopDecision, VerificationResult
 from .state_store import StateStore
 from .verifier import STDERR_LOG, STDOUT_LOG, Verifier
-from .workspace import CandidateWorkspace
+from .workspace import CandidateWorkspace, resolve_candidate_base_files
 
 
 GRAPH_NODE_NAMES = [
@@ -220,13 +220,18 @@ def _artifact_result_for_candidate(
 
 
 def _assignment_to_dict(assignment: CandidateAssignment) -> dict[str, Any]:
-    return {
+    payload = {
         "candidate_id": assignment.candidate_id,
         "batch_id": assignment.batch_id,
         "role": assignment.role,
         "phase": assignment.phase.value,
         "primary_objective": assignment.primary_objective,
     }
+    if assignment.macro_topology_directive:
+        payload["macro_topology_directive"] = dict(assignment.macro_topology_directive)
+    if assignment.avoid_patterns:
+        payload["avoid_patterns"] = list(assignment.avoid_patterns)
+    return payload
 
 
 def _load_dut_contract(repo_root: Path, config: dict[str, Any]) -> tuple[str, list[str]]:
@@ -250,6 +255,22 @@ def _load_dut_contract(repo_root: Path, config: dict[str, Any]) -> tuple[str, li
         raise ValueError(f"{amptest_config_path} dut_pins_order must be a non-empty list of strings")
 
     return dut_subckt.strip(), [pin.strip() for pin in dut_pins_order]
+
+
+def _load_topology_brief(repo_root: Path, config: dict[str, Any]) -> str:
+    path_value = config.get("topology_brief_path")
+    if not isinstance(path_value, str) or not path_value.strip():
+        return ""
+    try:
+        path = _resolve_repo_config_path(repo_root, path_value)
+    except ValueError:
+        return ""
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
 
 
 def _load_config_dict(state: GraphState) -> dict[str, Any] | None:
@@ -277,6 +298,8 @@ def _assignment_from_dict(raw: dict[str, Any]) -> CandidateAssignment:
         role=str(raw["role"]),
         phase=Phase(str(raw["phase"])),
         primary_objective=str(raw["primary_objective"]),
+        macro_topology_directive=dict(raw["macro_topology_directive"]) if isinstance(raw.get("macro_topology_directive"), dict) else None,
+        avoid_patterns=[str(item) for item in raw.get("avoid_patterns", [])] if isinstance(raw.get("avoid_patterns"), list) else None,
     )
 
 
@@ -328,6 +351,8 @@ def _run_agent_for_assignment(
     recent_ledger = [entry.model_dump(mode="json") for entry in store.read_ledger()[-20:]]
     contract_path = _resolve_repo_path(repo_root, str(state["contract_path"]))
     contract_excerpt = contract_path.read_text(encoding="utf-8", errors="replace")
+    topology_brief = _load_topology_brief(repo_root, config)
+    base_dut, base_devices = resolve_candidate_base_files(repo_root, config)
     agent_call_id = f"{assignment.candidate_id}-subagent-a{attempt}"
     context_path = write_context_package(
         run_dir=run_dir,
@@ -338,8 +363,9 @@ def _run_agent_for_assignment(
         recent_ledger=recent_ledger,
         dut_netlist_path=str(config["dut_netlist"]),
         devices_csv_path=str(config["devices_csv"]),
-        base_dut=_resolve_repo_config_path(repo_root, str(config["dut_netlist"])),
-        base_devices=_resolve_repo_config_path(repo_root, str(config["devices_csv"])),
+        base_dut=base_dut,
+        base_devices=base_devices,
+        topology_brief=topology_brief,
     )
     if validation_errors:
         (context_path / "validation_errors.json").write_text(
@@ -635,7 +661,12 @@ def plan_batch_node(state: GraphState) -> GraphState:
     try:
         runner_state = RunnerState.model_validate(next_state["runner_state"])
         batch_size = int(next_state["runner_config"]["candidate_generation_batch_size"])
-        assignments = plan_batch(runner_state, batch_size, datetime.now(timezone.utc))
+        recent_ledger: list[dict[str, Any]] = []
+        paths = _artifact_paths(next_state)
+        if paths is not None:
+            store = _store_for_state(next_state, paths, next_state["runner_config"])
+            recent_ledger = [entry.model_dump(mode="json") for entry in store.read_ledger()]
+        assignments = plan_batch(runner_state, batch_size, datetime.now(timezone.utc), recent_ledger=recent_ledger)
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _record_error(next_state, "plan_batch", f"could not plan batch: {exc}")
 

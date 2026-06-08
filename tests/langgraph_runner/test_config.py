@@ -36,6 +36,7 @@ class TestRunnerConfig(unittest.TestCase):
         config = RunnerConfig.model_validate(minimal_config())
 
         self.assertEqual(config.agent_backend.mode, "codex_exec")
+        self.assertEqual(config.topology_brief_path, "docs/topology-exploration-brief.md")
 
     def test_agent_backend_accepts_local_deterministic_mode(self):
         config = RunnerConfig.model_validate(
@@ -56,6 +57,39 @@ class TestRunnerConfig(unittest.TestCase):
         config = load_runner_config(path)
 
         self.assertEqual(config.agent_backend.mode, "local_deterministic")
+
+    def test_load_runner_config_reads_custom_topology_brief_path(self):
+        root = SCRATCH / "load_topology_brief_path"
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "runner_config.json"
+        path.write_text(
+            json.dumps(minimal_config(topology_brief_path="docs/custom-topology-brief.md")),
+            encoding="utf-8",
+        )
+
+        config = load_runner_config(path)
+
+        self.assertEqual(config.topology_brief_path, "docs/custom-topology-brief.md")
+
+    def test_load_runner_config_reads_candidate_base_workspace(self):
+        root = SCRATCH / "load_candidate_base_workspace"
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "runner_config.json"
+        path.write_text(
+            json.dumps(
+                minimal_config(
+                    candidate_base_workspace="automation_artifacts/workspaces/p1-b028-c03-arch-20260606-135953"
+                )
+            ),
+            encoding="utf-8",
+        )
+
+        config = load_runner_config(path)
+
+        self.assertEqual(
+            config.candidate_base_workspace,
+            "automation_artifacts/workspaces/p1-b028-c03-arch-20260606-135953",
+        )
 
     def test_repository_runner_config_uses_codex_exec_backend(self):
         config = load_runner_config(Path("runner_config.json"))
