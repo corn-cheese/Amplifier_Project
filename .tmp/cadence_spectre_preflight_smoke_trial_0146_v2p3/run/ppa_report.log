@@ -1,0 +1,76 @@
+design: veriloga_dummy_neural_amp
+
+[Area / Power]
+area_total_p: 1.75309e+10
+area_source: devices_csv
+static_current_a: 0 A
+power_static_w: 0 W
+power_static_source: devices_csv_estimate
+power_static_measured_w: N/A
+power_static_estimate_w: 0 W
+power_dc_w: 0 W
+power_dynamic_raw_w: 0.000694178 W
+power_dynamic_w: 0.000694178 W
+power_dynamic_measured_w: 0.000694178 W
+power_steady_w: 0.000694041 W
+power_period_w: 0.000694019 W
+power_period_frequency_hz: 1000 Hz
+power_period_cycles: 1
+power_period_start_s: 0.019 s
+power_period_stop_s: 0.02 s
+power_total_w: 0.000694178 W
+power_score_basis_w: 0.000694178 W
+
+[Area Breakdown]
+Q1: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q2: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q3: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+Q4: type=pnp, source=devices_csv, count=1, netlist_m=1, area_each_p=11.56, area_total_p=11.56
+CE1: type=capacitor, source=devices_csv, count=1, netlist_m=6.29294e+07, area_each_p=134.55, area_total_p=8.46715e+09
+CE2: type=capacitor, source=devices_csv, count=1, netlist_m=6.41331e+07, area_each_p=134.55, area_total_p=8.62911e+09
+CP1: type=capacitor, source=devices_csv, count=1, netlist_m=1589, area_each_p=134.55, area_total_p=213800
+CP2: type=capacitor, source=devices_csv, count=1, netlist_m=1501, area_each_p=134.55, area_total_p=201960
+CP3: type=capacitor, source=devices_csv, count=1, netlist_m=10608, area_each_p=134.55, area_total_p=1.42731e+06
+Q5: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+CIN1: type=capacitor, source=devices_csv, count=1, netlist_m=2.48639e+06, area_each_p=134.55, area_total_p=3.34544e+08
+CIN2: type=capacitor, source=devices_csv, count=1, netlist_m=726723, area_each_p=134.55, area_total_p=9.77806e+07
+RVREF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=225814, area_total_p=225814
+RBIN1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=29326.6, area_total_p=29326.6
+RBIN2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=5733.72, area_total_p=5733.72
+RC1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3680.08, area_total_p=3680.08
+RE1U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=135.398, area_total_p=135.398
+RE1B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=4622.53, area_total_p=4622.53
+RC2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=2700.29, area_total_p=2700.29
+RQ4U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3872.42, area_total_p=3872.42
+RQ4R: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=7193.96, area_total_p=7193.96
+RQ4FB: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=90072.7, area_total_p=90072.7
+REQ4: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=677.538, area_total_p=677.538
+RE2U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=191.85, area_total_p=191.85
+RE2B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3664.08, area_total_p=3664.08
+RBUF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=40152.3, area_total_p=40152.3
+RQ5U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=32019.3, area_total_p=32019.3
+RQ5B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=6826.09, area_total_p=6826.09
+REQ5: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=21512.5, area_total_p=21512.5
+
+[AC Performance]
+ac_nrmse_db: 0.121113
+ac_rmse_db: 26.1504 dB
+midband_gain_vv: 83.7689 V/V
+midband_gain_db: 38.4617 dB
+lower_3db_hz: 60.5796 Hz
+upper_3db_hz: 20129.6 Hz
+passband_ripple_db: 12.8403 dB
+attenuation_low_probe_db_rel_mid: -71.707 dB
+attenuation_high_probe_db_rel_mid: -46.0407 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 0.00393685
+tran_ac_rmse_v: 0.00027834 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 2.75572 V
+vout_ac_peak_to_peak_v: 0.200821 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.000985986
+thd_db: -60.1226 dB
+
+performance_nrmse_combined: 0.0625249

@@ -42,7 +42,6 @@ class CandidateAssembler:
         self.paths = paths
         self.repo_root = repo_root
         self.config = config
-        self.workspace = CandidateWorkspace(paths.workspaces_dir)
 
     def assemble(self, assignment: dict[str, Any], parsed: ParsedSubagentOutput | dict[str, Any] | None) -> CandidateAssemblyResult:
         candidate_id = str(assignment["candidate_id"])
@@ -69,14 +68,19 @@ class CandidateAssembler:
             shutil.copy2(parsed_output.patch_path, candidate_dir / "patch.diff")
             shutil.copy2(parsed_output.notes_path, candidate_dir / "notes.md")
             base_dut, base_devices = resolve_candidate_base_files(self.repo_root, self.config)
-            workspace_dir = self.workspace.create(
+            workspace_manager = CandidateWorkspace(
+                self.paths.workspaces_dir,
+                dut_netlist_path=str(self.config["dut_netlist"]),
+                devices_csv_path=str(self.config["devices_csv"]),
+            )
+            workspace_dir = workspace_manager.create(
                 candidate_id,
                 base_dut,
                 base_devices,
                 _repo_path(self.repo_root, self.config["amptest_config"]),
             )
             patch_text = parsed_output.patch_path.read_text(encoding="utf-8")
-            patch_result = self.workspace.apply_patch(workspace_dir, patch_text)
+            patch_result = workspace_manager.apply_patch(workspace_dir, patch_text)
             if not patch_result.applied:
                 errors.append(f"patch_apply_failed: {patch_result.reason}")
         except (OSError, KeyError, ValueError) as exc:

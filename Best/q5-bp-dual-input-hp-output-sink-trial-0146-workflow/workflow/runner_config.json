@@ -1,0 +1,35 @@
+{
+  "artifact_root": "automation_artifacts",
+  "contract_path": "docs/top-coordinator-contract.md",
+  "amptest_dir": "amptest_v2p3/COREONLY",
+  "dut_netlist": "amptest_v2p3/COREONLY/dummy_neural_amp.scs",
+  "devices_csv": "amptest_v2p3/COREONLY/devices.csv",
+  "amptest_config": "amptest_v2p3/COREONLY/config.json",
+  "topology_brief_path": "docs/topology-exploration-brief.md",
+  "candidate_base_workspace": "automation_artifacts/workspaces/p1-b028-c03-arch-20260606-135953",
+  "candidate_generation_batch_size": 3,
+  "max_active_primes_per_subagent": 2,
+  "max_total_primes_per_subagent": 4,
+  "agent_timeouts_seconds": {
+    "subagent": 1200,
+    "prime": 600,
+    "reviewer": 300,
+    "top": 300
+  },
+  "agent_backend": {
+    "mode": "codex_exec"
+  },
+  "verifier": {
+    "command": "python \"Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/workflow/amptest_v2p3_preflight.py\" --ssh-target me59@163.180.160.78 --remote-root /home/me59/amplifier_runner --identity-file \"%USERPROFILE%\\.ssh\\eda_langgraph\" --candidate-id {candidate_id} --repo-root \"{repo_root}\" --local-candidate-dir \"{local_candidate_dir}\" --amptest-dir amptest_v2p3/COREONLY",
+    "timeout_seconds": 1800,
+    "min_interval_seconds": 0,
+    "required_outputs": [
+      "verification.json",
+      "ppa_metrics.json",
+      "ppa_report.log",
+      "spectre_ac.log",
+      "spectre_tran_static.log",
+      "spectre_tran.log"
+    ]
+  }
+}

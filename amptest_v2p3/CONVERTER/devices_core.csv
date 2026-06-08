@@ -1,0 +1,6 @@
+name,type,count,width,length,multiplier,segments,seg_length,seg_width,ft_hz,area_p,include_in_ppa
+XCORE_OPAMP_EQUIV,opamp,1,,,,,,,100meg,,true
+RCORE_TOP,resistor,1,,,,100,5.73u,0.35u,,,true
+RCORE_BOT,resistor,1,,,,100,5.73u,0.35u,,,true
+CCORE_INT,capacitor,2,11.5u,11.7u,1,,,,,,true
+

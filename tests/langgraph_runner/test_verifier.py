@@ -90,6 +90,47 @@ class TestVerifier(unittest.TestCase):
         self.assertEqual(written.status, "passed")
         self.assertEqual(written.spectre_logs, [])
 
+    def test_normalizes_v2p3_static_transient_log_from_ppa_run_outputs(self):
+        root = scratch_case("normalizes_v2p3_static_transient_log")
+        candidate_dir = root / "candidate"
+        workspace = root / "workspace"
+        run_dir = workspace / "run"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        command = python_command(
+            "from pathlib import Path; import json; "
+            f"run = Path(r'{run_dir}'); "
+            "run.mkdir(parents=True, exist_ok=True); "
+            "metrics = dict(performance_nrmse_combined=0.125, "
+            "area_power=dict(area_total_p=45.0, power_score_basis_w=0.003)); "
+            "(run / 'ppa_metrics.json').write_text(json.dumps(metrics), encoding='utf-8'); "
+            "(run / 'ppa_report.log').write_text('ppa passed\\n', encoding='utf-8'); "
+            "[(run / name).write_text(name + '\\n', encoding='utf-8') for name in "
+            "['spectre_ac.log', 'spectre_tran_static.log', 'spectre_tran.log']]"
+        )
+        verifier = Verifier(
+            command=command,
+            timeout_seconds=10,
+            min_interval_seconds=0,
+            required_outputs=[
+                "verification.json",
+                "ppa_metrics.json",
+                "ppa_report.log",
+                "spectre_ac.log",
+                "spectre_tran_static.log",
+                "spectre_tran.log",
+            ],
+        )
+
+        result = verifier.run("cid", root, workspace, candidate_dir)
+
+        self.assertEqual(result.status, "passed", result.errors)
+        self.assertTrue((candidate_dir / "spectre_tran_static.log").exists())
+        written = VerificationResult.model_validate_json(
+            (candidate_dir / "verification.json").read_text(encoding="utf-8")
+        )
+        self.assertIn(str(candidate_dir / "spectre_tran_static.log"), written.spectre_logs)
+
     def test_ppa_wrapper_run_outputs_with_missing_required_metric_return_error(self):
         root = scratch_case("ppa_wrapper_run_outputs_missing_required_metric")
         candidate_dir = root / "candidate"
@@ -261,7 +302,12 @@ class TestVerifier(unittest.TestCase):
     def test_default_runner_config_uses_ssh_verifier_and_requires_spectre_logs(self):
         config = json.loads(Path("runner_config.json").read_text(encoding="utf-8"))
 
+        self.assertEqual(config["amptest_dir"], "amptest_v2p3/COREONLY")
+        self.assertEqual(config["dut_netlist"], "amptest_v2p3/COREONLY/dummy_neural_amp.scs")
+        self.assertEqual(config["devices_csv"], "amptest_v2p3/COREONLY/devices.csv")
+        self.assertEqual(config["amptest_config"], "amptest_v2p3/COREONLY/config.json")
         self.assertIn("langgraph_runner.ssh_verifier", config["verifier"]["command"])
+        self.assertIn("--amptest-dir amptest_v2p3/COREONLY", config["verifier"]["command"])
         self.assertIn("me59@163.180.160.78", config["verifier"]["command"])
         self.assertIn("/home/me59/amplifier_runner", config["verifier"]["command"])
         self.assertIn("--identity-file", config["verifier"]["command"])
@@ -269,7 +315,14 @@ class TestVerifier(unittest.TestCase):
         self.assertNotIn("{repo_root}/amptest/ppa_wrapper.py all", config["verifier"]["command"])
         self.assertEqual(
             config["verifier"]["required_outputs"],
-            ["verification.json", "ppa_metrics.json", "ppa_report.log", "spectre_ac.log", "spectre_tran.log"],
+            [
+                "verification.json",
+                "ppa_metrics.json",
+                "ppa_report.log",
+                "spectre_ac.log",
+                "spectre_tran_static.log",
+                "spectre_tran.log",
+            ],
         )
 
     def test_templated_command_validates_required_outputs(self):

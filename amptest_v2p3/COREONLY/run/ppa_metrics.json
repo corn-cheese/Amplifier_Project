@@ -1,0 +1,75 @@
+{
+  "ac": {
+    "ac_nrmse_db": 0.013138832522815587,
+    "ac_rmse_db": 2.8369051896858974,
+    "attenuation_high_probe_db_rel_mid": -79.55912939258613,
+    "attenuation_low_probe_db_rel_mid": -79.55909004298246,
+    "lower_3db_hz": 20.798565517234994,
+    "midband_gain_db": 39.38623465390791,
+    "midband_gain_vv": 93.1776456296296,
+    "passband_ripple_db": 3.8590333409479456,
+    "upper_3db_hz": 9615.41717580062
+  },
+  "area_power": {
+    "area_source": "devices_csv",
+    "area_total_p": 1269.1,
+    "device_rows": [
+      {
+        "area_p_each": 1000.0,
+        "area_p_total": 1000.0,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "XVA_OPAMP_EQUIV",
+        "netlist_m": 1.0,
+        "type": "opamp"
+      },
+      {
+        "area_p_each": 134.54999999999998,
+        "area_p_total": 269.09999999999997,
+        "area_source": "devices_csv",
+        "count": 2.0,
+        "effective_count": 2.0,
+        "included": true,
+        "name": "CINT_EQUIV",
+        "netlist_m": 1.0,
+        "type": "capacitor"
+      }
+    ],
+    "power_dc_w": 0.0035000000000004364,
+    "power_dynamic_measured_w": 0.0035000000000001874,
+    "power_dynamic_raw_w": 0.0,
+    "power_dynamic_w": 0.0,
+    "power_measured_total_w": 0.0035000000000004364,
+    "power_period_cycles": 1.0,
+    "power_period_frequency_hz": 1000.0,
+    "power_period_start_s": 0.019,
+    "power_period_stop_s": 0.02,
+    "power_period_w": 0.003499999999999979,
+    "power_score_basis_w": 0.0035000000000004364,
+    "power_static_estimate_w": 0.0035,
+    "power_static_measured_w": 0.0035000000000004364,
+    "power_static_source": "static_tran_csv",
+    "power_static_w": 0.0035000000000004364,
+    "power_steady_w": 0.0035000000000004364,
+    "power_total_w": 0.0035000000000004364,
+    "static_current_a": 0.0007
+  },
+  "design_name": "veriloga_dummy_neural_amp",
+  "performance_nrmse_combined": 0.0864726521318089,
+  "tran": {
+    "fft_fundamental_hz": 1000.0,
+    "thd_db": -58.28295806325254,
+    "thd_ratio_h2_to_h5": 0.0012185745309750567,
+    "tran_ac_nrmse_vs_target_filter": 0.1598064717408022,
+    "tran_ac_rmse_v": 0.01129849892260191,
+    "tran_nrmse_vs_target_filter": 0.1598064717408022,
+    "tran_rmse_v": 0.01129849892260191,
+    "vin_dc_removed_v": 2.499999504121767,
+    "vout_ac_peak_to_peak_v": 0.2015130500610498,
+    "vout_dc_removed_v": 2.499520712618168,
+    "vout_mean_v": 2.499520712618168,
+    "vout_peak_to_peak_v": 0.2015130500610498
+  }
+}

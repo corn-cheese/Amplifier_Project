@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="842" height="595" viewBox="0 0 842 595">
+<style>
+  text { font-family: Pretendard, Helvetica, Arial, sans-serif; fill: #1a1f2a; }
+  .small { font-size: 12px; fill: #555b66; }
+  .port { font-size: 11px; fill: #3c4350; }
+  .title { font-size: 22px; font-weight: 700; }
+  .block-title { font-size: 20px; font-weight: 700; }
+  .box { stroke: #252b36; stroke-width: 1.6; rx: 8; }
+  .line { stroke: #252b36; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+</style>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#252b36"/></marker></defs>
+<rect width="842" height="595" fill="#fff"/>
+<text x="36" y="43" class="title">AC-DC Converter Attached Neural Amplifier: Required Block Diagram</text>
+<text x="36" y="64" class="small">Use exactly these three subckt symbols and port signatures. TOP wraps CONVERTER and CORE only.</text>
+<rect x="42" y="112" width="758" height="372" fill="#fcfcff" stroke="#151821" stroke-width="2"/>
+<text x="54" y="137" font-size="15" font-weight="700">TOP  (VIN VREF VAC_P VAC_N GND VOUT)</text>
+<rect x="122" y="215" width="150" height="104" class="box" fill="#eef7ff"/>
+<text x="136" y="244" class="block-title">CONVERTER</text><text x="136" y="264" class="small">AC to raw supply</text>
+<rect x="566" y="195" width="156" height="142" class="box" fill="#fff6ef"/>
+<text x="580" y="224" class="block-title">CORE</text><text x="580" y="244" class="small">neural amplifier only</text>
+<line x1="42" y1="245" x2="110" y2="245" class="line"/><text x="56" y="237" class="port">VAC_P</text>
+<line x1="42" y1="271" x2="110" y2="271" class="line"/><text x="56" y="263" class="port">VAC_N</text>
+<line x1="272" y1="267" x2="566" y2="267" class="line"/><text x="356" y="259" class="port">VDD_RAW TO VDD_CORE</text>
+<line x1="42" y1="340" x2="554" y2="300" class="line"/><text x="58" y="331" class="port">VIN</text>
+<line x1="42" y1="374" x2="554" y2="272" class="line"/><text x="58" y="365" class="port">VREF</text>
+<line x1="722" y1="266" x2="800" y2="266" class="line"/><text x="745" y="258" class="port">VOUT</text>
+<line x1="86" y1="411" x2="752" y2="411" stroke="#555b66" stroke-width="1.2"/><text x="92" y="400" class="small">GND common reference to CONVERTER, CORE, and TOP</text>
+<rect x="42" y="495" width="370" height="70" fill="#fff" stroke="#555"/>
+<text x="52" y="518" font-size="14" font-weight="700">Measurement rule</text>
+<text x="52" y="538" class="small">Similarity: TOP VOUT transient vs target response</text>
+<text x="52" y="552" class="small">Power/Area: CORE only, using XCORE and VDD_CORE</text>
+<rect x="444" y="495" width="356" height="70" fill="#fff" stroke="#555"/>
+<text x="454" y="518" font-size="14" font-weight="700">Required subckt signatures</text>
+<text x="454" y="536" class="small">CORE      VIN VREF VDD GND VOUT</text>
+<text x="454" y="550" class="small">CONVERTER VAC_P VAC_N GND VDD</text>
+<text x="454" y="564" class="small">TOP       VIN VREF VAC_P VAC_N GND VOUT</text>
+</svg>

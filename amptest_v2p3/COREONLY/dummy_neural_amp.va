@@ -1,0 +1,49 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+module dummy_neural_amp_va(VIN, VREF, VDD, GND, VOUT);
+  inout VIN, VREF, VDD, GND, VOUT;
+  electrical VIN, VREF, VDD, GND, VOUT;
+  electrical hp1, hp2, hp3, hp4, lp1, lp2, lp3, lp4;
+
+  parameter real gain = 100.0;
+  parameter real flow_hz = 10.0;
+  parameter real fhigh_hz = 20000.0;
+  parameter real idd_static = 700u;
+  parameter real cubic = 0.3;
+
+  real wl;
+  real wh;
+  real sig;
+  real hp_num[0:1];
+  real hp_den[0:1];
+  real lp_num[0:0];
+  real lp_den[0:1];
+
+  analog begin
+    wl = 2.0 * `M_PI * flow_hz;
+    wh = 2.0 * `M_PI * fhigh_hz;
+
+    hp_num[0] = 0.0;
+    hp_num[1] = 1.0;
+    hp_den[0] = wl;
+    hp_den[1] = 1.0;
+    lp_num[0] = wh;
+    lp_den[0] = wh;
+    lp_den[1] = 1.0;
+
+    V(hp1, GND) <+ laplace_nd(V(VIN, VREF), hp_num, hp_den);
+    V(hp2, GND) <+ laplace_nd(V(hp1, GND), hp_num, hp_den);
+    V(hp3, GND) <+ laplace_nd(V(hp2, GND), hp_num, hp_den);
+    V(hp4, GND) <+ laplace_nd(V(hp3, GND), hp_num, hp_den);
+
+    V(lp1, GND) <+ laplace_nd(V(hp4, GND), lp_num, lp_den);
+    V(lp2, GND) <+ laplace_nd(V(lp1, GND), lp_num, lp_den);
+    V(lp3, GND) <+ laplace_nd(V(lp2, GND), lp_num, lp_den);
+    V(lp4, GND) <+ laplace_nd(V(lp3, GND), lp_num, lp_den);
+
+    sig = gain * V(lp4, GND);
+    V(VOUT, GND) <+ V(VREF, GND) + sig + cubic * sig * sig * sig;
+    I(VDD, GND) <+ idd_static;
+  end
+endmodule

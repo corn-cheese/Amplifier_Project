@@ -1,0 +1,106 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 4550 >>
+stream
+0.100 0.120 0.160 rg /F2 18 Tf 1 0 0 1 36.0 552.0 Tm (AC-DC Converter Attached Neural Amplifier: Required Block Diagram) Tj
+0.100 0.120 0.160 rg /F1 10 Tf 1 0 0 1 36.0 532.0 Tm (Use exactly these three subckt symbols and port signatures. TOP wraps CONVERTER and CORE only.) Tj
+0.450 0.480 0.550 rg /F1 8 Tf 1 0 0 1 36.0 516.0 Tm (Font intent: Pretendard style. PDF uses standard Helvetica fallback for portability.) Tj
+1.80 w
+0.990 0.990 1.000 rg 42.0 112.0 758.0 372.0 re f
+0.080 0.090 0.120 RG 42.0 112.0 758.0 372.0 re S
+0.100 0.120 0.160 rg /F2 12 Tf 1 0 0 1 54.0 462.0 Tm (TOP  \(VIN VREF VAC_P VAC_N GND VOUT\)) Tj
+1.40 w
+0.930 0.970 1.000 rg 122.0 276.0 150.0 104.0 re f
+0.150 0.180 0.230 RG 122.0 276.0 150.0 104.0 re S
+0.100 0.120 0.160 rg /F2 17 Tf 1 0 0 1 136.0 354.0 Tm (CONVERTER) Tj
+0.350 0.380 0.440 rg /F1 9 Tf 1 0 0 1 136.0 335.0 Tm (AC to raw supply) Tj
+1.10 w 0.150 0.180 0.230 RG 110.0 354.0 m 122.0 354.0 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 130.0 351.0 Tm (VAC_P) Tj
+1.10 w 0.150 0.180 0.230 RG 110.0 328.0 m 122.0 328.0 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 130.0 325.0 Tm (VAC_N) Tj
+1.10 w 0.150 0.180 0.230 RG 110.0 302.0 m 122.0 302.0 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 130.0 299.0 Tm (GND) Tj
+1.10 w 0.150 0.180 0.230 RG 272.0 328.0 m 284.0 328.0 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 232.5 325.0 Tm (VDD_RAW) Tj
+1.40 w
+1.000 0.970 0.940 rg 566.0 238.0 156.0 142.0 re f
+0.150 0.180 0.230 RG 566.0 238.0 156.0 142.0 re S
+0.100 0.120 0.160 rg /F2 17 Tf 1 0 0 1 580.0 354.0 Tm (CORE) Tj
+0.350 0.380 0.440 rg /F1 9 Tf 1 0 0 1 580.0 335.0 Tm (neural amplifier only) Tj
+1.10 w 0.150 0.180 0.230 RG 554.0 351.6 m 566.0 351.6 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 574.0 348.6 Tm (VIN) Tj
+1.10 w 0.150 0.180 0.230 RG 554.0 323.2 m 566.0 323.2 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 574.0 320.2 Tm (VREF) Tj
+1.10 w 0.150 0.180 0.230 RG 554.0 294.8 m 566.0 294.8 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 574.0 291.8 Tm (VDD) Tj
+1.10 w 0.150 0.180 0.230 RG 554.0 266.4 m 566.0 266.4 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 574.0 263.4 Tm (GND) Tj
+1.10 w 0.150 0.180 0.230 RG 722.0 309.0 m 734.0 309.0 l S
+0.250 0.280 0.330 rg /F1 8 Tf 1 0 0 1 696.0 306.0 Tm (VOUT) Tj
+1.40 w 0.150 0.180 0.230 RG 42.0 350.0 m 110.0 350.0 l S
+0.15 0.18 0.23 rg 110.0 350.0 m 102.0 354.0 l 102.0 346.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 64.5 358.0 Tm (VAC_P) Tj
+1.40 w 0.150 0.180 0.230 RG 42.0 324.0 m 110.0 324.0 l S
+0.15 0.18 0.23 rg 110.0 324.0 m 102.0 328.0 l 102.0 320.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 64.5 332.0 Tm (VAC_N) Tj
+1.40 w 0.150 0.180 0.230 RG 272.0 328.0 m 566.0 328.0 l S
+0.15 0.18 0.23 rg 566.0 328.0 m 558.0 332.0 l 558.0 324.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 375.3 336.0 Tm (VDD_RAW TO VDD_CORE) Tj
+1.40 w 0.150 0.180 0.230 RG 42.0 260.0 m 554.0 300.0 l S
+0.15 0.18 0.23 rg 554.0 300.0 m 546.0 304.0 l 546.0 296.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 291.1 268.0 Tm (VIN) Tj
+1.40 w 0.150 0.180 0.230 RG 42.0 236.0 m 554.0 272.0 l S
+0.15 0.18 0.23 rg 554.0 272.0 m 546.0 276.0 l 546.0 268.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 288.8 244.0 Tm (VREF) Tj
+1.40 w 0.150 0.180 0.230 RG 722.0 309.0 m 800.0 309.0 l S
+0.15 0.18 0.23 rg 800.0 309.0 m 792.0 313.0 l 792.0 305.0 l f
+0.270 0.300 0.360 rg /F1 9 Tf 1 0 0 1 751.8 317.0 Tm (VOUT) Tj
+1.00 w 0.320 0.350 0.400 RG 86.0 184.0 m 752.0 184.0 l S
+0.320 0.350 0.400 rg /F1 9 Tf 1 0 0 1 92.0 192.0 Tm (GND common reference to CONVERTER, CORE, and TOP) Tj
+0.90 w 0.320 0.350 0.400 RG 110.0 184.0 m 110.0 292.0 l S
+0.90 w 0.320 0.350 0.400 RG 554.0 184.0 m 554.0 292.0 l S
+1.00 w
+1.000 1.000 1.000 rg 444.0 30.0 356.0 70.0 re f
+0.150 0.180 0.230 RG 444.0 30.0 356.0 70.0 re S
+0.100 0.120 0.160 rg /F2 11 Tf 1 0 0 1 454.0 82.0 Tm (Required subckt signatures) Tj
+0.100 0.120 0.160 rg /F1 7.5 Tf 1 0 0 1 454.0 66.0 Tm (CORE      VIN VREF VDD GND VOUT) Tj
+0.100 0.120 0.160 rg /F1 7.5 Tf 1 0 0 1 454.0 56.0 Tm (CONVERTER VAC_P VAC_N GND VDD) Tj
+0.100 0.120 0.160 rg /F1 7.5 Tf 1 0 0 1 454.0 46.0 Tm (TOP       VIN VREF VAC_P VAC_N GND VOUT) Tj
+1.00 w
+1.000 1.000 1.000 rg 42.0 30.0 370.0 70.0 re f
+0.150 0.180 0.230 RG 42.0 30.0 370.0 70.0 re S
+0.100 0.120 0.160 rg /F2 11 Tf 1 0 0 1 52.0 82.0 Tm (Measurement rule) Tj
+0.100 0.120 0.160 rg /F1 8.5 Tf 1 0 0 1 52.0 66.0 Tm (Similarity: TOP VOUT transient vs target response) Tj
+0.100 0.120 0.160 rg /F1 8.5 Tf 1 0 0 1 52.0 54.0 Tm (Power/Area: CORE only, using XCORE and VDD_CORE) Tj
+0.100 0.120 0.160 rg /F1 8.5 Tf 1 0 0 1 52.0 42.0 Tm (Total CORE power = static + dynamic) Tj
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+5003
+%%EOF

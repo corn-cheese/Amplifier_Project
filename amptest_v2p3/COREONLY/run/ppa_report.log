@@ -1,0 +1,49 @@
+design: veriloga_dummy_neural_amp
+
+[Area / Power]
+area_total_p: 1269.1
+area_source: devices_csv
+static_current_a: 0.0007 A
+power_static_w: 0.0035 W
+power_static_source: static_tran_csv
+power_static_measured_w: 0.0035 W
+power_static_estimate_w: 0.0035 W
+power_dc_w: 0.0035 W
+power_dynamic_raw_w: 0 W
+power_dynamic_w: 0 W
+power_dynamic_measured_w: 0.0035 W
+power_steady_w: 0.0035 W
+power_period_w: 0.0035 W
+power_period_frequency_hz: 1000 Hz
+power_period_cycles: 1
+power_period_start_s: 0.019 s
+power_period_stop_s: 0.02 s
+power_total_w: 0.0035 W
+power_score_basis_w: 0.0035 W
+
+[Area Breakdown]
+XVA_OPAMP_EQUIV: type=opamp, source=devices_csv, count=1, netlist_m=1, area_each_p=1000, area_total_p=1000
+CINT_EQUIV: type=capacitor, source=devices_csv, count=2, netlist_m=1, area_each_p=134.55, area_total_p=269.1
+
+[AC Performance]
+ac_nrmse_db: 0.0131388
+ac_rmse_db: 2.83691 dB
+midband_gain_vv: 93.1776 V/V
+midband_gain_db: 39.3862 dB
+lower_3db_hz: 20.7986 Hz
+upper_3db_hz: 9615.42 Hz
+passband_ripple_db: 3.85903 dB
+attenuation_low_probe_db_rel_mid: -79.5591 dB
+attenuation_high_probe_db_rel_mid: -79.5591 dB
+
+[Transient AC / FFT Performance]
+tran_ac_nrmse_vs_target_filter: 0.159806
+tran_ac_rmse_v: 0.0112985 V
+vin_dc_removed_v: 2.5 V
+vout_dc_removed_v: 2.49952 V
+vout_ac_peak_to_peak_v: 0.201513 V
+fft_fundamental_hz: 1000 Hz
+thd_ratio_h2_to_h5: 0.00121857
+thd_db: -58.283 dB
+
+performance_nrmse_combined: 0.0864727

@@ -1,0 +1,313 @@
+{
+  "ac": {
+    "ac_nrmse_db": 0.21383484440918007,
+    "ac_rmse_db": 46.17070647537881,
+    "attenuation_high_probe_db_rel_mid": -26.50442948525251,
+    "attenuation_low_probe_db_rel_mid": -40.866544529463695,
+    "lower_3db_hz": 25.449415172280116,
+    "midband_gain_db": 39.546827428571525,
+    "midband_gain_vv": 94.91642481481483,
+    "passband_ripple_db": 4.6153116181803355,
+    "upper_3db_hz": 28152.734416874115
+  },
+  "area_power": {
+    "area_total_p": 3.987178565008352e+17,
+    "device_rows": [
+      {
+        "area_p_each": 2.0,
+        "area_p_total": 2.0,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "Q1",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 2.0,
+        "area_p_total": 2.0,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "Q2",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 1.0,
+        "area_p_total": 1.0,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "Q3",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 11.56,
+        "area_p_total": 11.56,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "Q4",
+        "netlist_m": 1.0,
+        "type": "pnp"
+      },
+      {
+        "area_p_each": 3520970733.15,
+        "area_p_total": 9.213849798364064e+16,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 26168493.0,
+        "included": true,
+        "name": "CE1",
+        "netlist_m": 26168493.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 6422635937.249999,
+        "area_p_total": 3.065793562426992e+17,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 47734195.0,
+        "included": true,
+        "name": "CE2",
+        "netlist_m": 47734195.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 272598.3,
+        "area_p_total": 552284155.8,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 2026.0,
+        "included": true,
+        "name": "CP1",
+        "netlist_m": 2026.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 70235.1,
+        "area_p_total": 36662722.2,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 522.0,
+        "included": true,
+        "name": "CP2",
+        "netlist_m": 522.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 476172.44999999995,
+        "area_p_total": 1685174300.55,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 3539.0,
+        "included": true,
+        "name": "CP3",
+        "netlist_m": 3539.0,
+        "type": "capacitor"
+      },
+      {
+        "area_p_each": 1.0,
+        "area_p_total": 1.0,
+        "area_source": "devices_csv",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "Q5",
+        "netlist_m": 1.0,
+        "type": "npn"
+      },
+      {
+        "area_p_each": 225814.14299999998,
+        "area_p_total": 225814.14299999998,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RVREF",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 3680.08104,
+        "area_p_total": 3680.08104,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RC1",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 135.397608,
+        "area_p_total": 135.397608,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RE1U",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 4622.53425,
+        "area_p_total": 4622.53425,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RE1B",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 2700.29115,
+        "area_p_total": 2700.29115,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RC2",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 3872.4199500000004,
+        "area_p_total": 3872.4199500000004,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RQ4U",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 7193.957700000001,
+        "area_p_total": 7193.957700000001,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RQ4R",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 44086.10429999999,
+        "area_p_total": 44086.10429999999,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RQ4FB",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 677.5381199999999,
+        "area_p_total": 677.5381199999999,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "REQ4",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 191.85014099999998,
+        "area_p_total": 191.85014099999998,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RE2U",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 3664.0771500000005,
+        "area_p_total": 3664.0771500000005,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RE2B",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 17187.7653,
+        "area_p_total": 17187.7653,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RBUF",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 32019.297300000002,
+        "area_p_total": 32019.297300000002,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RQ5U",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 6826.091700000001,
+        "area_p_total": 6826.091700000001,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "RQ5B",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      },
+      {
+        "area_p_each": 21512.5401,
+        "area_p_total": 21512.5401,
+        "area_source": "netlist_lw",
+        "count": 1.0,
+        "effective_count": 1.0,
+        "included": true,
+        "name": "REQ5",
+        "netlist_m": 1.0,
+        "type": "resistor"
+      }
+    ],
+    "power_dc_w": 0.0,
+    "power_dynamic_w": 0.000741578240350001,
+    "power_score_basis_w": 0.000741578240350001,
+    "static_current_a": 0.0
+  },
+  "design_name": "veriloga_dummy_neural_amp",
+  "performance_nrmse_combined": 0.11661416379072626,
+  "tran": {
+    "fft_fundamental_hz": 1000.0,
+    "thd_db": -62.16789053016015,
+    "thd_ratio_h2_to_h5": 0.0007791220104669872,
+    "tran_ac_nrmse_vs_target_filter": 0.01939348317227245,
+    "tran_ac_rmse_v": 0.001371141270691561,
+    "tran_nrmse_vs_target_filter": 0.01939348317227245,
+    "tran_rmse_v": 0.001371141270691561,
+    "vin_dc_removed_v": 2.499999504121767,
+    "vout_ac_peak_to_peak_v": 0.20149836996336967,
+    "vout_dc_removed_v": 2.8349407673792992,
+    "vout_mean_v": 2.8349407673792992,
+    "vout_peak_to_peak_v": 0.20149836996336967
+  }
+}

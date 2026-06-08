@@ -13,11 +13,11 @@ from .artifacts import _safe_fragment
 
 DUT_NETLIST = "dummy_neural_amp.scs"
 DEVICES_CSV = "devices.csv"
-ALLOWED_PATCH_PATHS = {
-    f"amptest/{DUT_NETLIST}",
-    f"amptest/{DEVICES_CSV}",
-}
+DEFAULT_DUT_NETLIST_PATH = f"amptest/{DUT_NETLIST}"
+DEFAULT_DEVICES_CSV_PATH = f"amptest/{DEVICES_CSV}"
+ALLOWED_PATCH_PATHS = {DEFAULT_DUT_NETLIST_PATH, DEFAULT_DEVICES_CSV_PATH}
 HUNK_HEADER_RE = re.compile(r"@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
+INCLUDE_RE = re.compile(r'^\s*(?:include|ahdl_include)\s+"([^"]+)"', re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -148,7 +148,8 @@ def _strip_patch_prefix(value: str) -> str:
     return value
 
 
-def _apply_unified_diff_fallback(scratch: Path, patch_text: str) -> PatchApplyResult | None:
+def _apply_unified_diff_fallback(scratch: Path, patch_text: str, allowed_patch_paths: set[str] | None = None) -> PatchApplyResult | None:
+    allowed_patch_paths = allowed_patch_paths or ALLOWED_PATCH_PATHS
     lines = patch_text.splitlines(keepends=True)
     index = 0
     patched_any = False
@@ -181,7 +182,7 @@ def _apply_unified_diff_fallback(scratch: Path, patch_text: str) -> PatchApplyRe
             raise ValueError("diff section missing file headers")
 
         rel_path = old_path if new_path == "/dev/null" else new_path
-        if rel_path not in ALLOWED_PATCH_PATHS:
+        if rel_path not in allowed_patch_paths:
             raise ValueError(f"unsupported patch path: {rel_path}")
         if new_path == "/dev/null":
             return PatchApplyResult(False, "missing patched output: " + rel_path)
@@ -263,9 +264,69 @@ def _ensure_amptest_layout(workspace: Path) -> Path:
     return scratch
 
 
+def _ensure_patch_layout(workspace: Path, dut_netlist_path: str, devices_csv_path: str) -> Path:
+    if dut_netlist_path == DEFAULT_DUT_NETLIST_PATH and devices_csv_path == DEFAULT_DEVICES_CSV_PATH:
+        return _ensure_amptest_layout(workspace)
+
+    scratch = workspace / "_patch_root"
+    dut_target = scratch / dut_netlist_path
+    devices_target = scratch / devices_csv_path
+    dut_target.parent.mkdir(parents=True, exist_ok=True)
+    devices_target.parent.mkdir(parents=True, exist_ok=True)
+    dut, devices = _required_workspace_files(workspace)
+    shutil.copy2(dut, dut_target)
+    shutil.copy2(devices, devices_target)
+    return scratch
+
+
+def _safe_patch_path(value: str) -> str:
+    path = Path(value)
+    if path.is_absolute():
+        raise ValueError(f"patch path must be repo-relative: {value}")
+    parts = path.parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"unsafe patch path: {value}")
+    return path.as_posix()
+
+
+def _base_support_files(base_dut: Path, config: dict) -> list[Path]:
+    refs = set(INCLUDE_RE.findall(base_dut.read_text(encoding="utf-8")))
+    for key in ("include_files", "ahdl_include_files"):
+        for value in config.get(key, []):
+            refs.add(str(value))
+
+    sources: list[Path] = []
+    for ref in sorted(refs):
+        rel_path = _direct_relative_include_path(ref)
+        if rel_path is None:
+            continue
+        source = base_dut.parent / rel_path
+        if source.is_file():
+            sources.append(source)
+    return sources
+
+
+def _direct_relative_include_path(value: str) -> Path | None:
+    path = Path(value)
+    if path.is_absolute():
+        return None
+    parts = path.parts
+    if len(parts) != 1 or parts[0] in {"", ".", ".."}:
+        return None
+    return path
+
+
 class CandidateWorkspace:
-    def __init__(self, workspace_root: Path):
+    def __init__(
+        self,
+        workspace_root: Path,
+        dut_netlist_path: str = DEFAULT_DUT_NETLIST_PATH,
+        devices_csv_path: str = DEFAULT_DEVICES_CSV_PATH,
+    ):
         self.workspace_root = workspace_root
+        self.dut_netlist_path = _safe_patch_path(dut_netlist_path)
+        self.devices_csv_path = _safe_patch_path(devices_csv_path)
+        self.allowed_patch_paths = {self.dut_netlist_path, self.devices_csv_path}
 
     def create(self, candidate_id: str, base_dut: Path, base_devices: Path, base_config: Path) -> Path:
         workspace = self.workspace_root / _safe_fragment(candidate_id)
@@ -279,6 +340,8 @@ class CandidateWorkspace:
         config["input_files"]["ac_csv"] = "run/ac.csv"
         config["input_files"]["tran_csv"] = "run/tran.csv"
         (workspace / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        for source in _base_support_files(base_dut, config):
+            shutil.copy2(source, workspace / source.name)
         return workspace
 
     def promote(self, workspace: Path, target_dut: Path, target_devices: Path) -> None:
@@ -286,7 +349,7 @@ class CandidateWorkspace:
         _copy_pair_staged((source_dut, source_devices), (target_dut, target_devices), "promote")
 
     def apply_patch(self, workspace: Path, patch_text: str) -> PatchApplyResult:
-        scratch = _ensure_amptest_layout(workspace)
+        scratch = _ensure_patch_layout(workspace, self.dut_netlist_path, self.devices_csv_path)
         patch_file = workspace / "patch.diff"
         patch_file.write_bytes(patch_text.encode("utf-8"))
         env = os.environ.copy()
@@ -306,15 +369,15 @@ class CandidateWorkspace:
         if completed.returncode != 0:
             if _sandbox_unlink_failure(completed.stderr):
                 try:
-                    fallback_result = _apply_unified_diff_fallback(scratch, patch_text)
+                    fallback_result = _apply_unified_diff_fallback(scratch, patch_text, self.allowed_patch_paths)
                 except ValueError:
                     return PatchApplyResult(False, "git apply failed: " + completed.stderr.strip())
                 if not fallback_result.applied:
                     return fallback_result
             else:
                 return PatchApplyResult(False, "git apply failed: " + completed.stderr.strip())
-        patched_dut = scratch / "amptest" / DUT_NETLIST
-        patched_devices = scratch / "amptest" / DEVICES_CSV
+        patched_dut = scratch / self.dut_netlist_path
+        patched_devices = scratch / self.devices_csv_path
         missing = [path for path in (patched_dut, patched_devices) if not path.exists()]
         if missing:
             missing_names = ", ".join(str(path.relative_to(scratch)).replace("\\", "/") for path in missing)

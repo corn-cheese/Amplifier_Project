@@ -1,0 +1,6 @@
+{
+  "source": "latest_q5_output_active_sink_summary",
+  "summary_path": "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-output-active-sink\\q5-300-20260608-022430\\best_trial_summary.json",
+  "candidate_id": "q5-output-sink-trial-0237",
+  "baseline_workspace": "D:\\Codex\\Amplifier\\automation_artifacts\\sweeps\\q5-output-active-sink\\q5-300-20260608-022430\\trial_0237\\workspace"
+}

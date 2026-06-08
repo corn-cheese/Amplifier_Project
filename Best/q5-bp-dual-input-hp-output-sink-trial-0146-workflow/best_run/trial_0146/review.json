@@ -1,0 +1,19 @@
+{
+  "candidate_id": "q5-bp-dual-input-hp-output-sink-trial-0146",
+  "passed": true,
+  "checks": {
+    "required_artifacts": true,
+    "proposal_schema": true,
+    "candidate_id": true,
+    "patch_present": true,
+    "file_scope": true,
+    "workspace_netlist": true,
+    "pin_contract": true,
+    "forbidden_shortcut": true,
+    "installed_sky130_names": true,
+    "res_high_po_5p73_explicit_lw_m": true,
+    "devices_csv": true
+  },
+  "errors": [],
+  "warnings": []
+}

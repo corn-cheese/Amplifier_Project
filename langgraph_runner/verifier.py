@@ -19,7 +19,7 @@ from .schemas import VerificationResult
 STDOUT_LOG = "verifier_stdout.log"
 STDERR_LOG = "verifier_stderr.log"
 VERIFICATION_JSON = "verification.json"
-PPA_RUN_OUTPUTS = ("ppa_metrics.json", "ppa_report.log", "spectre_ac.log", "spectre_tran.log")
+PPA_RUN_OUTPUTS = ("ppa_metrics.json", "ppa_report.log", "spectre_ac.log", "spectre_tran_static.log", "spectre_tran.log")
 
 
 @dataclass(frozen=True)

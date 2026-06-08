@@ -1,0 +1,16 @@
+simulator lang=spectre
+ahdl_include "converter_example_blocks.va"
+
+subckt CORE VIN VREF VDD GND VOUT
+    XCORE_OPAMP_EQUIV (VIN VREF VDD GND VOUT) core_va
+ends CORE
+
+subckt CONVERTER VAC_P VAC_N GND VDD
+    XCONV (VAC_P VAC_N GND VDD) converter_va
+ends CONVERTER
+
+subckt TOP VIN VREF VAC_P VAC_N GND VOUT
+    XCONVERTER (VAC_P VAC_N GND VDD_RAW) CONVERTER
+    VSUPPLY_LINK (VDD_RAW VDD_CORE) vsource dc=0
+    XCORE (VIN VREF VDD_CORE GND VOUT) CORE
+ends TOP

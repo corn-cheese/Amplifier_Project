@@ -1,0 +1,65 @@
+// Student CONVERTER submission template.
+//
+// Do not change these public wrapper signatures:
+//   CORE      VIN VREF VDD GND VOUT
+//   CONVERTER VAC_P VAC_N GND VDD
+//   TOP       VIN VREF VAC_P VAC_N GND VOUT
+//
+// If the pin order in a Virtuoso-generated subckt is different, fix it in the
+// wrapper instance connection order. Spectre connects instance nodes by the
+// order declared in the called subckt.
+
+simulator lang=spectre
+
+// Include or paste the netlists generated from Virtuoso here.
+// Example only:
+//
+// subckt MY_AMP GND VDD INP OUT REF
+//     ...
+// ends MY_AMP
+//
+// subckt MY_CONV OUTP GND INN INP
+//     ...
+// ends MY_CONV
+
+// Wrap the amplifier netlist as CORE.
+// Required CORE order: VIN VREF VDD GND VOUT
+//
+// Example mapping for:
+//   MY_AMP GND VDD INP OUT REF
+//
+// subckt CORE VIN VREF VDD GND VOUT
+//     XAMP (GND VDD VIN VOUT VREF) MY_AMP
+// ends CORE
+
+subckt CORE VIN VREF VDD GND VOUT
+    // Replace MY_AMP and the node order with your amplifier subckt mapping.
+    // XAMP (...) MY_AMP
+ends CORE
+
+// Wrap the converter netlist as CONVERTER.
+// Required CONVERTER order: VAC_P VAC_N GND VDD
+//
+// Example mapping for:
+//   MY_CONV OUTP GND INN INP
+//
+// subckt CONVERTER VAC_P VAC_N GND VDD
+//     XCONV (VDD GND VAC_N VAC_P) MY_CONV
+// ends CONVERTER
+
+subckt CONVERTER VAC_P VAC_N GND VDD
+    // Replace MY_CONV and the node order with your converter subckt mapping.
+    // XCONV (...) MY_CONV
+ends CONVERTER
+
+// Keep this TOP structure unless you have a specific reason to add internal
+// passive/load/filter elements. The test script expects:
+//   XCORE instance name
+//   VDD_RAW converter output net
+//   VDD_CORE core supply net
+
+subckt TOP VIN VREF VAC_P VAC_N GND VOUT
+    XCONVERTER (VAC_P VAC_N GND VDD_RAW) CONVERTER
+    VSUPPLY_LINK (VDD_RAW VDD_CORE) vsource dc=0
+    XCORE (VIN VREF VDD_CORE GND VOUT) CORE
+ends TOP

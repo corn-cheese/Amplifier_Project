@@ -1,0 +1,24 @@
+`include "constants.vams"
+`include "disciplines.vams"
+
+module core_va(VIN, VREF, VDD, GND, VOUT);
+  inout VIN, VREF, VDD, GND, VOUT;
+  electrical VIN, VREF, VDD, GND, VOUT;
+  parameter real gain = 100.0;
+  parameter real idd_static = 700u;
+  analog begin
+    I(VDD, GND) <+ idd_static;
+    V(VOUT, GND) <+ V(VREF, GND) + gain * (V(VIN, GND) - V(VREF, GND));
+  end
+endmodule
+
+module converter_va(VAC_P, VAC_N, GND, VDD);
+  inout VAC_P, VAC_N, GND, VDD;
+  electrical VAC_P, VAC_N, GND, VDD;
+  parameter real output_v = 5.0;
+  parameter real startup_delay = 0.0;
+  parameter real rise_time = 1u;
+  analog begin
+    V(VDD, GND) <+ transition(output_v, startup_delay, rise_time);
+  end
+endmodule

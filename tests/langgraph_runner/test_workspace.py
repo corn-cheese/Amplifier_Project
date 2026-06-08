@@ -46,6 +46,31 @@ class TestCandidateWorkspace(unittest.TestCase):
         self.assertEqual(config["input_files"]["ac_csv"], "run/ac.csv")
         self.assertEqual(config["input_files"]["tran_csv"], "run/tran.csv")
 
+    def test_workspace_copies_veriloga_sidecar_referenced_by_base_netlist(self):
+        root = scratch_case("copies_veriloga_sidecar")
+        base_dut = root / "amptest_v2p3" / "COREONLY" / "dummy_neural_amp.scs"
+        base_devices = root / "amptest_v2p3" / "COREONLY" / "devices.csv"
+        base_config = root / "amptest_v2p3" / "COREONLY" / "config.json"
+        base_dut.parent.mkdir(parents=True, exist_ok=True)
+        base_dut.write_text(
+            'simulator lang=spectre\nahdl_include "dummy_neural_amp.va"\n',
+            encoding="utf-8",
+        )
+        (base_dut.parent / "dummy_neural_amp.va").write_text(
+            "module dummy_neural_amp_va; endmodule\n",
+            encoding="utf-8",
+        )
+        base_devices.write_text("name,type,count,include_in_ppa\n", encoding="utf-8")
+        base_config.write_text('{"dut_netlist":"dummy_neural_amp.scs"}', encoding="utf-8")
+        manager = CandidateWorkspace(root / "automation_artifacts" / "workspaces")
+
+        workspace = manager.create("p1-b001-c01-arch-20260604-231500", base_dut, base_devices, base_config)
+
+        self.assertEqual(
+            (workspace / "dummy_neural_amp.va").read_text(encoding="utf-8"),
+            "module dummy_neural_amp_va; endmodule\n",
+        )
+
     def test_create_rejects_unsafe_candidate_id(self):
         root = scratch_case("create_rejects_unsafe_candidate_id")
         base_dut = root / "amptest" / "dummy_neural_amp.scs"
@@ -229,6 +254,52 @@ class TestCandidateWorkspace(unittest.TestCase):
         self.assertTrue(result.applied, result.reason)
         self.assertIn("R1 VDD VOUT 20k\n", (workspace / "dummy_neural_amp.scs").read_text(encoding="utf-8"))
         self.assertIn("R1,resistor,2,true\n", (workspace / "devices.csv").read_text(encoding="utf-8"))
+
+    def test_apply_patch_accepts_configured_amptest_v2p3_coreonly_paths(self):
+        root = scratch_case("apply_patch_accepts_configured_amptest_v2p3_coreonly_paths")
+        workspace = root / "workspace"
+        workspace.mkdir(exist_ok=True)
+        (workspace / "dummy_neural_amp.scs").write_text(
+            "simulator lang=spectre\n"
+            "subckt dummy_neural_amp GND VDD VIN VOUT VREF\n"
+            "R1 VDD VOUT 10k\n"
+            "ends dummy_neural_amp\n",
+            encoding="utf-8",
+        )
+        (workspace / "devices.csv").write_text(
+            "name,type,count,include_in_ppa\n"
+            "R1,resistor,1,true\n",
+            encoding="utf-8",
+        )
+        patch_text = (
+            "diff --git a/amptest_v2p3/COREONLY/dummy_neural_amp.scs b/amptest_v2p3/COREONLY/dummy_neural_amp.scs\n"
+            "--- a/amptest_v2p3/COREONLY/dummy_neural_amp.scs\n"
+            "+++ b/amptest_v2p3/COREONLY/dummy_neural_amp.scs\n"
+            "@@ -1,4 +1,4 @@\n"
+            " simulator lang=spectre\n"
+            " subckt dummy_neural_amp GND VDD VIN VOUT VREF\n"
+            "-R1 VDD VOUT 10k\n"
+            "+R1 VDD VOUT 30k\n"
+            " ends dummy_neural_amp\n"
+            "diff --git a/amptest_v2p3/COREONLY/devices.csv b/amptest_v2p3/COREONLY/devices.csv\n"
+            "--- a/amptest_v2p3/COREONLY/devices.csv\n"
+            "+++ b/amptest_v2p3/COREONLY/devices.csv\n"
+            "@@ -1,2 +1,2 @@\n"
+            " name,type,count,include_in_ppa\n"
+            "-R1,resistor,1,true\n"
+            "+R1,resistor,3,true\n"
+        )
+        manager = CandidateWorkspace(
+            root / "automation_artifacts" / "workspaces",
+            dut_netlist_path="amptest_v2p3/COREONLY/dummy_neural_amp.scs",
+            devices_csv_path="amptest_v2p3/COREONLY/devices.csv",
+        )
+
+        result = manager.apply_patch(workspace, patch_text)
+
+        self.assertTrue(result.applied, result.reason)
+        self.assertIn("R1 VDD VOUT 30k\n", (workspace / "dummy_neural_amp.scs").read_text(encoding="utf-8"))
+        self.assertIn("R1,resistor,3,true\n", (workspace / "devices.csv").read_text(encoding="utf-8"))
 
     def test_apply_patch_writes_patch_text_without_platform_newline_conversion(self):
         root = scratch_case("apply_patch_writes_patch_text_without_platform_newline_conversion")

@@ -1,0 +1,1732 @@
+from __future__ import annotations
+
+import argparse
+import csv
+import difflib
+import json
+import math
+import random
+import shutil
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from io import StringIO
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT_FOR_CLONED_WORKFLOW = Path(__file__).resolve().parents[3]
+if str(REPO_ROOT_FOR_CLONED_WORKFLOW) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT_FOR_CLONED_WORKFLOW))
+
+from langgraph_runner.config import load_runner_config
+from langgraph_runner.review import DeterministicReviewer
+from langgraph_runner.verifier import Verifier
+
+
+DUT_REL_PATH = "amptest_v2p3/COREONLY/dummy_neural_amp.scs"
+DEVICES_REL_PATH = "amptest_v2p3/COREONLY/devices.csv"
+Q5_OUTPUT_ACTIVE_SWEEPS_REL_PATH = "automation_artifacts/sweeps/q5-output-active-sink"
+NPN_Q5_MODEL = "npn_05v5_W1p00L1p00"
+CAP_MODEL = "cap_vpp_11p5x11p7_m1m4_noshield"
+RES_MODEL = "res_high_po_5p73"
+DIODE_MODEL = "diode_pd2nw_05v5"
+REQUIRED_Q_DEVICES = {"Q1", "Q2", "Q3", "Q4", "Q5"}
+MIN_GAIN_DB = 35.0
+MIN_UPPER_3DB_HZ = 20000.0
+MIN_VOUT_PEAK_TO_PEAK_V = 0.02
+MAX_AREA_OBJECTIVE_PERFORMANCE_NRMSE = 0.75
+REJECTED_OBJECTIVE_FOR_STUDY = 1.0e99
+RANGE_AUTOTUNE_BATCH_SIZE = 150
+RANGE_AUTOTUNE_TOP_N = 10
+RANGE_AUTOTUNE_EDGE_COUNT = 7
+RANGE_AUTOTUNE_LOW_FRACTION = 0.05
+RANGE_AUTOTUNE_HIGH_FRACTION = 0.95
+RANGE_AUTOTUNE_EXPANSION_FACTOR = 1.5
+INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES = (
+    "b2b-cc",
+    "b2b-ca",
+    "dual-b2b",
+    "series2-cc",
+    "reverse-antiparallel",
+)
+INPUT_DIODE_PSEUDO_RESISTOR_RANGES: dict[str, dict[str, tuple[float, float]]] = {
+    "b2b-cc": {
+        "CIN1_m": (240000.0, 600000.0),
+        "CIN2_m": (60000.0, 150000.0),
+        "DIN1_m": (2.0, 8.0),
+        "DIN2_m": (2.0, 8.0),
+    },
+    "b2b-ca": {
+        "CIN1_m": (240000.0, 600000.0),
+        "CIN2_m": (60000.0, 150000.0),
+        "DIN1_m": (2.0, 8.0),
+        "DIN2_m": (2.0, 8.0),
+    },
+    "dual-b2b": {
+        "CIN1_m": (120000.0, 360000.0),
+        "CIN2_m": (30000.0, 90000.0),
+        "DIN1_m": (1.0, 4.0),
+        "DIN2_m": (1.0, 4.0),
+    },
+    "series2-cc": {
+        "CIN1_m": (60000.0, 240000.0),
+        "CIN2_m": (15000.0, 60000.0),
+        "DIN1_m": (1.0, 4.0),
+        "DIN2_m": (1.0, 4.0),
+    },
+    "reverse-antiparallel": {
+        "CIN1_m": (300000.0, 900000.0),
+        "CIN2_m": (80000.0, 200000.0),
+        "DIN1_m": (1.0, 6.0),
+        "DIN2_m": (1.0, 6.0),
+    },
+}
+
+
+@dataclass(frozen=True)
+class ParamSpec:
+    device: str
+    low: float = 0.0
+    high: float = 0.0
+    log_scale: bool = False
+    kind: str = "scalar"
+    support: bool = False
+    choices: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FamilySpec:
+    slug: str
+    candidate_prefix: str
+    hypothesis: str
+    changed_blocks: tuple[str, ...]
+    risk: str
+    params: dict[str, ParamSpec]
+    allow_q1_input_highpass: bool = False
+    q1_input_node: str | None = None
+    allow_q5_lf_servo: bool = False
+    ce1_diode_topology: str | None = None
+
+
+CE1_DIODE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
+    "shunt": (
+        "ce1-b2b-shunt-cc",
+        "ce1-b2b-shunt-ca",
+        "ce1-b2b-shunt-dual",
+        "ce1-b2b-shunt-series2",
+        "ce1-b2b-shunt-vref",
+    ),
+    "series": (
+        "ce1-series-extender-cc",
+        "ce1-series-extender-ca",
+        "ce1-series-extender-series2",
+        "ce1-series-extender-split-bleed",
+        "ce1-series-extender-vref",
+    ),
+    "collector": (
+        "ce1-collector-assisted-cc",
+        "ce1-collector-assisted-ca",
+        "ce1-collector-assisted-series2",
+        "ce1-collector-assisted-damped",
+        "ce1-driver-assisted-cc",
+    ),
+}
+
+_CE1_DIODE_FAMILY_TOPOLOGY = {
+    slug: slug
+    for group in CE1_DIODE_FAMILY_GROUPS.values()
+    for slug in group
+}
+
+
+def _ce1_diode_family_specs() -> dict[str, FamilySpec]:
+    specs: dict[str, FamilySpec] = {}
+    for group, slugs in CE1_DIODE_FAMILY_GROUPS.items():
+        for slug in slugs:
+            specs[slug] = FamilySpec(
+                slug=slug,
+                candidate_prefix="q5-bp-" + slug,
+                hypothesis=_ce1_diode_hypothesis(group, slug),
+                changed_blocks=(
+                    "ce1_diode_pseudoresistor",
+                    "emitter_bypass_area_reduction",
+                    "low_cutoff_area_objective",
+                    "device_accounting",
+                ),
+                risk="Weak diode leakage can preserve the low cutoff with much smaller CE1, but bias or passband gain can collapse if a diode path conducts too strongly.",
+                params=_ce1_diode_param_specs(slug),
+                ce1_diode_topology=slug,
+            )
+    return specs
+
+
+def _ce1_diode_hypothesis(group: str, slug: str) -> str:
+    if group == "shunt":
+        return f"Reduce CE1 by replacing most E1B-to-ground low-frequency return authority with the {slug} back-to-back diode leakage shunt."
+    if group == "series":
+        return f"Reduce CE1 by moving the RE1B bottom return through the {slug} reverse-leakage extender while CE1 remains a direct AC bypass."
+    return f"Reduce CE1 by adding the {slug} collector/driver-assisted capacitive bypass plus a diode reverse-leakage return path."
+
+
+def _ce1_diode_param_specs(slug: str) -> dict[str, ParamSpec]:
+    params: dict[str, ParamSpec] = {
+        "CE1_m": ParamSpec("CE1", 5000.0, 200000.0, True, "capacitor"),
+        "CE2_m": ParamSpec("CE2", 20000000.0, 65000000.0, True, "capacitor"),
+        "RE1B_l": ParamSpec("RE1B", 4000.0, 120000.0, True, "resistor"),
+    }
+    if slug == "ce1-series-extender-split-bleed":
+        params["RE1BS_l"] = ParamSpec("RE1BS", 40000.0, 400000.0, True, "resistor", True)
+    if slug.startswith("ce1-collector-assisted") or slug == "ce1-driver-assisted-cc":
+        params["CME1_m"] = ParamSpec("CME1", 10.0, 2500.0, True, "capacitor", True)
+    if slug == "ce1-collector-assisted-damped":
+        params["RME1_l"] = ParamSpec("RME1", 200.0, 12000.0, True, "resistor", True)
+    for name in _ce1_diode_device_names(slug):
+        params[f"{name}_m"] = ParamSpec(name, 1.0, 16.0, True, "diode", True)
+    return params
+
+
+def _ce1_diode_device_names(slug: str) -> tuple[str, ...]:
+    if slug in {"ce1-b2b-shunt-dual"}:
+        return ("DCE1A1", "DCE1A2", "DCE1A3", "DCE1A4")
+    if slug in {"ce1-b2b-shunt-series2"}:
+        return ("DCE1A1", "DCE1A2", "DCE1A3", "DCE1A4")
+    if slug in {"ce1-series-extender-series2"}:
+        return ("DCE1B1", "DCE1B2", "DCE1B3", "DCE1B4")
+    if slug in {"ce1-collector-assisted-series2"}:
+        return ("DCE1C1", "DCE1C2", "DCE1C3", "DCE1C4")
+    if slug.startswith("ce1-b2b-shunt"):
+        return ("DCE1A1", "DCE1A2")
+    if slug.startswith("ce1-series-extender"):
+        return ("DCE1B1", "DCE1B2")
+    if slug.startswith("ce1-collector-assisted") or slug == "ce1-driver-assisted-cc":
+        return ("DCE1C1", "DCE1C2")
+    return ()
+
+
+FAMILY_SPECS: dict[str, FamilySpec] = {
+    "output-active-sink-expanded": FamilySpec(
+        slug="output-active-sink-expanded",
+        candidate_prefix="q5-bp-output-sink-expanded",
+        hypothesis="Retune the best Q5 output active sink over wider RBUF and distributed capacitor ranges.",
+        changed_blocks=("q5_output_active_sink", "expanded_output_load", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Large RBUF or CP3 values can collapse bandwidth or disturb output swing even when raw AC shape improves.",
+        params={
+            "RBUF_l": ParamSpec("RBUF", 2200.0, 7000.0, False, "resistor"),
+            "CP1_m": ParamSpec("CP1", 300.0, 950.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 700.0, 2300.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 4500.0, 13000.0, True, "capacitor"),
+            "CE1_m": ParamSpec("CE1", 15000000.0, 32000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 20000000.0, 42000000.0, False, "capacitor"),
+        },
+    ),
+    "input-highpass": FamilySpec(
+        slug="input-highpass",
+        candidate_prefix="q5-bp-input-highpass",
+        hypothesis="Add an input coupling high-pass into Q1 base while preserving the Q5 output sink.",
+        changed_blocks=("input_coupling_highpass", "q1_base_bias", "emitter_bypass_tuning", "device_accounting"),
+        risk="The coupling network can bias Q1 incorrectly or attenuate the 1 kHz transient stimulus if CIN/RBIN are poorly matched.",
+        allow_q1_input_highpass=True,
+        params={
+            "CIN_m": ParamSpec("CIN", 250000.0, 2000000.0, True, "capacitor", True),
+            "RBIN_l": ParamSpec("RBIN", 3500.0, 6000.0, True, "resistor", True),
+            "CE1_m": ParamSpec("CE1", 45000000.0, 80000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 30000000.0, 65000000.0, False, "capacitor"),
+        },
+    ),
+    "feedback-lowpass-n1": FamilySpec(
+        slug="feedback-lowpass-n1",
+        candidate_prefix="q5-bp-feedback-lowpass-n1",
+        hypothesis="Add a Miller-style capacitor between NDRV and N1 while sweeping distributed low-pass capacitors and Q4 feedback.",
+        changed_blocks=("miller_lowpass_ndrv_n1", "q4_feedback_strength", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Too much NDRV-to-N1 compensation can overfeed the first-stage collector node and reject bandwidth.",
+        params={
+            "CM12_m": ParamSpec("CM12", 1.0, 15.0, True, "capacitor", True),
+            "CP1_m": ParamSpec("CP1", 450.0, 2200.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 350.0, 1900.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 6000.0, 18000.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 6500.0, 9500.0, True, "resistor"),
+        },
+    ),
+    "feedback-lowpass-output": FamilySpec(
+        slug="feedback-lowpass-output",
+        candidate_prefix="q5-bp-feedback-lowpass-output",
+        hypothesis="Add an output-to-driver compensation capacitor while sweeping distributed low-pass capacitors and Q4 feedback.",
+        changed_blocks=("miller_lowpass_vout_ndrv", "q4_feedback_strength", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="VOUT-to-NDRV compensation can create excessive local feedback and reduce output swing.",
+        params={
+            "CMOUT_m": ParamSpec("CMOUT", 5.0, 600.0, True, "capacitor", True),
+            "CP1_m": ParamSpec("CP1", 550.0, 1900.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 600.0, 1800.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 3500.0, 8500.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 6500.0, 9000.0, True, "resistor"),
+        },
+    ),
+    "input-highpass-output-sink": FamilySpec(
+        slug="input-highpass-output-sink",
+        candidate_prefix="q5-bp-input-highpass-output-sink",
+        hypothesis="Combine input coupling high-pass with the best Q5 output sink and wider distributed pole tuning.",
+        changed_blocks=("input_coupling_highpass", "q5_output_active_sink", "expanded_output_load", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Joint low-side and high-side shaping has the most freedom but can bias Q1 or VOUT out of the useful operating region.",
+        allow_q1_input_highpass=True,
+        params={
+            "CIN_m": ParamSpec("CIN", 150000.0, 600000.0, True, "capacitor", True),
+            "RBIN_l": ParamSpec("RBIN", 600.0, 1800.0, True, "resistor", True),
+            "RBUF_l": ParamSpec("RBUF", 4500.0, 10000.0, False, "resistor"),
+            "CP1_m": ParamSpec("CP1", 2000.0, 4000.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 1500.0, 3800.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 3000.0, 7000.0, True, "capacitor"),
+            "CE1_m": ParamSpec("CE1", 52000000.0, 70000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 24000000.0, 60000000.0, False, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 7500.0, 13500.0, True, "resistor"),
+        },
+    ),
+    "dual-input-highpass-output-sink": FamilySpec(
+        slug="dual-input-highpass-output-sink",
+        candidate_prefix="q5-bp-dual-input-hp-output-sink",
+        hypothesis="Retain trial_0146 except for the two cascaded input coupling sections, replacing RBIN1/RBIN2 with diode pseudo-resistor leakage paths.",
+        changed_blocks=(
+            "trial_0146_input_coupling_highpass",
+            "input_highpass_diode_pseudoresistor",
+            "cin1_cin2_area_reduction",
+            "device_accounting",
+        ),
+        risk="Diode leakage paths can preserve B1/B2 DC return with much smaller CIN1/CIN2, but leakage strength or polarity can shift the operating point or move the low cutoff.",
+        q1_input_node="B2",
+        params={
+            "input_pr_topology": ParamSpec("input_pr_topology", kind="choice", choices=INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES),
+            "CIN1_m": ParamSpec("CIN1", 60000.0, 900000.0, True, "capacitor", True),
+            "CIN2_m": ParamSpec("CIN2", 15000.0, 200000.0, True, "capacitor", True),
+            "DIN1_m": ParamSpec("DIN1", 1.0, 8.0, True, "scalar"),
+            "DIN2_m": ParamSpec("DIN2", 1.0, 8.0, True, "scalar"),
+        },
+    ),
+    "input-highpass-damped-miller": FamilySpec(
+        slug="input-highpass-damped-miller",
+        candidate_prefix="q5-bp-input-hp-damped-miller",
+        hypothesis="Keep the input high-pass and Q5 output sink, then add series-damped Miller compensation for high-side rolloff control.",
+        changed_blocks=(
+            "input_coupling_highpass",
+            "series_damped_miller_ndrv_n1",
+            "series_damped_miller_vout_ndrv",
+            "q4_feedback_strength",
+            "device_accounting",
+        ),
+        risk="Damped compensation can improve high-frequency attenuation, but excessive feedback can reduce output swing or push the upper cutoff below target.",
+        allow_q1_input_highpass=True,
+        params={
+            "CIN_m": ParamSpec("CIN", 450000.0, 2200000.0, True, "capacitor", True),
+            "RBIN_l": ParamSpec("RBIN", 1800.0, 10000.0, True, "resistor", True),
+            "RZ12_l": ParamSpec("RZ12", 400.0, 6000.0, True, "resistor", True),
+            "CM12_m": ParamSpec("CM12", 5.0, 350.0, True, "capacitor", True),
+            "RZOUT_l": ParamSpec("RZOUT", 400.0, 9000.0, True, "resistor", True),
+            "CMOUT_m": ParamSpec("CMOUT", 5.0, 450.0, True, "capacitor", True),
+            "CP1_m": ParamSpec("CP1", 1700.0, 3200.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 1500.0, 3200.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 4000.0, 8000.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 8000.0, 12500.0, True, "resistor"),
+        },
+    ),
+    "lf-servo-bq4": FamilySpec(
+        slug="lf-servo-bq4",
+        candidate_prefix="q5-bp-lf-servo-bq4",
+        hypothesis="Re-purpose Q5 from output sink into a weak low-frequency servo that pulls the Q4 bias node from VOUT-derived feedback.",
+        changed_blocks=(
+            "q5_low_frequency_servo",
+            "q4_bias_feedback",
+            "output_passive_load",
+            "emitter_bypass_tuning",
+            "device_accounting",
+        ),
+        risk="The Q5 servo has more authority over Q4 bias than the output sink, so strong feedback can collapse NDRV or shift VOUT DC.",
+        allow_q5_lf_servo=True,
+        params={
+            "RQ5U_l": ParamSpec("RQ5U", 3500.0, 12000.0, True, "resistor"),
+            "RQ5B_l": ParamSpec("RQ5B", 700.0, 3000.0, True, "resistor"),
+            "RQ5FB_l": ParamSpec("RQ5FB", 40000.0, 180000.0, True, "resistor", True),
+            "REQ5_l": ParamSpec("REQ5", 2200.0, 9000.0, True, "resistor"),
+            "CQ5_m": ParamSpec("CQ5", 20.0, 900.0, True, "capacitor", True),
+            "RBUF_l": ParamSpec("RBUF", 4500.0, 10000.0, False, "resistor"),
+            "CP3_m": ParamSpec("CP3", 3500.0, 8500.0, True, "capacitor"),
+            "CE1_m": ParamSpec("CE1", 45000000.0, 70000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 38000000.0, 65000000.0, False, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 7500.0, 13500.0, True, "resistor"),
+        },
+    ),
+    "active-lf-servo-bq4": FamilySpec(
+        slug="active-lf-servo-bq4",
+        candidate_prefix="q5-bp-active-lf-servo-bq4",
+        hypothesis="Re-purpose Q5 from the output sink into a VOUT-driven low-frequency servo that pulls BQ4 while retaining the rerun high-side shaping ranges.",
+        changed_blocks=(
+            "q5_active_low_frequency_servo",
+            "q4_bias_feedback",
+            "emitter_bypass_tuning",
+            "distributed_pole_zero_shaping",
+            "device_accounting",
+        ),
+        risk="The active LF servo can improve the low cutoff, but excessive RQ5FB/CQ5 or Q4 feedback authority can collapse NDRV bias or push the upper cutoff below 20 kHz.",
+        allow_q5_lf_servo=True,
+        params={
+            "RQ5U_l": ParamSpec("RQ5U", 6000.0, 30000.0, True, "resistor"),
+            "RQ5B_l": ParamSpec("RQ5B", 1200.0, 9000.0, True, "resistor"),
+            "RQ5FB_l": ParamSpec("RQ5FB", 50000.0, 160000.0, True, "resistor", True),
+            "REQ5_l": ParamSpec("REQ5", 3500.0, 8000.0, True, "resistor"),
+            "CQ5_m": ParamSpec("CQ5", 1.0, 250.0, True, "capacitor", True),
+            "CP1_m": ParamSpec("CP1", 700.0, 2400.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 200.0, 1600.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 8000.0, 14000.0, True, "capacitor"),
+            "CE1_m": ParamSpec("CE1", 56000000.0, 70000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 20000000.0, 65000000.0, False, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 2000.0, 16000.0, True, "resistor"),
+        },
+    ),
+    "q1-cap-feedback-highpass": FamilySpec(
+        slug="q1-cap-feedback-highpass",
+        candidate_prefix="q5-bp-q1-cap-feedback-hp",
+        hypothesis="Reduce trial_0066 CIN1/CIN2 by replacing RBIN1/RBIN2 with weak diode pseudo-resistor leakage paths.",
+        changed_blocks=(
+            "input_highpass_diode_pseudoresistor",
+            "cin1_cin2_area_reduction",
+            "q1_base_dc_bias_preservation",
+            "device_accounting",
+        ),
+        risk="Diode leakage can emulate a very large RBIN value and shrink CIN1/CIN2, but weak or asymmetric conduction can shift B1/B2 DC bias or move the lower cutoff.",
+        params={
+            "input_pr_topology": ParamSpec("input_pr_topology", kind="choice", choices=INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES),
+            "CIN1_m": ParamSpec("CIN1", 20000.0, 1200000.0, True, "capacitor"),
+            "CIN2_m": ParamSpec("CIN2", 5000.0, 250000.0, True, "capacitor"),
+            "DIN1_m": ParamSpec("DIN1", 1.0, 64.0, True, "scalar"),
+            "DIN2_m": ParamSpec("DIN2", 1.0, 64.0, True, "scalar"),
+        },
+    ),
+    "lf-servo-damped-zero-shaping": FamilySpec(
+        slug="lf-servo-damped-zero-shaping",
+        candidate_prefix="q5-bp-lf-servo-damped-zero",
+        hypothesis="Combine the Q5 BQ4 low-frequency servo with series-damped N1/NDRV/VOUT zero shaping.",
+        changed_blocks=(
+            "q5_active_low_frequency_servo",
+            "series_damped_miller_ndrv_n1",
+            "series_damped_miller_vout_ndrv",
+            "q4_bias_feedback",
+            "distributed_pole_zero_shaping",
+            "device_accounting",
+        ),
+        risk="The combined LF servo and damped compensation can place useful zeros, but can also reduce output swing or push the upper cutoff below target.",
+        allow_q5_lf_servo=True,
+        params={
+            "RQ5FB_l": ParamSpec("RQ5FB", 250000.0, 1200000.0, True, "resistor", True),
+            "CQ5_m": ParamSpec("CQ5", 1.0, 120.0, True, "capacitor", True),
+            "RZ12_l": ParamSpec("RZ12", 600.0, 4000.0, True, "resistor", True),
+            "CM12_m": ParamSpec("CM12", 1.0, 80.0, True, "capacitor", True),
+            "RZOUT_l": ParamSpec("RZOUT", 4000.0, 30000.0, True, "resistor", True),
+            "CMOUT_m": ParamSpec("CMOUT", 10.0, 180.0, True, "capacitor", True),
+            "CP1_m": ParamSpec("CP1", 200.0, 1800.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 200.0, 1400.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 6500.0, 22000.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 2000.0, 16000.0, True, "resistor"),
+        },
+    ),
+}
+
+FAMILY_SPECS.update(_ce1_diode_family_specs())
+
+
+def build_q5_bandpass_artifacts(
+    baseline_netlist: str,
+    baseline_devices: str,
+    family: str,
+    params: dict[str, float],
+) -> tuple[str, str]:
+    spec = _family_spec(family)
+    _validate_params(spec, params)
+    baseline_q_lines = _q_device_lines(baseline_netlist)
+    if set(baseline_q_lines) != REQUIRED_Q_DEVICES:
+        raise ValueError("baseline netlist must contain exactly Q1/Q2/Q3/Q4/Q5")
+    if not _is_q5_output_sink_line(baseline_q_lines["Q5"]):
+        raise ValueError("baseline Q5 must be the output active sink topology")
+
+    netlist = _build_bandpass_netlist(baseline_netlist, spec, params)
+    generated_q_lines = _q_device_lines(netlist)
+    if set(generated_q_lines) != REQUIRED_Q_DEVICES:
+        raise ValueError("generated netlist must contain exactly Q1/Q2/Q3/Q4/Q5")
+    _validate_q_topology_policy(spec, baseline_q_lines, generated_q_lines)
+    devices = _build_bandpass_devices(baseline_devices, spec, params)
+    return netlist, devices
+
+
+def evaluate_raw_trial_objective(
+    review_passed: bool,
+    verification_status: str,
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    if not review_passed:
+        return _rejected("review_failed")
+    if verification_status != "passed":
+        return _rejected("sim_failed")
+
+    perf = _finite_float(metrics.get("performance_nrmse_combined"))
+    if perf is None:
+        return _rejected("non_finite_performance_nrmse_combined")
+    gain = _metric(metrics, ("ac", "midband_gain_db"))
+    upper = _metric(metrics, ("ac", "upper_3db_hz"))
+    swing = _metric(metrics, ("tran", "vout_peak_to_peak_v"))
+    if gain is None or gain < MIN_GAIN_DB:
+        return _rejected("gain_collapse")
+    if upper is None or upper < MIN_UPPER_3DB_HZ:
+        return _rejected("bandwidth_collapse")
+    if swing is None or swing < MIN_VOUT_PEAK_TO_PEAK_V:
+        return _rejected("output_swing_collapse")
+
+    area = _metric(metrics, ("area_power", "area_total_p"))
+    if area is None:
+        return _rejected("non_finite_area_total_p")
+
+    return {
+        "objective": perf,
+        "rejected": False,
+        "reason": "passed",
+        "penalties": {},
+        "failure_modes": classify_metrics_failure(metrics),
+        "performance_nrmse_combined": perf,
+        "area_total_p": area,
+    }
+
+
+def classify_metrics_failure(metrics: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
+    gain = _metric(metrics, ("ac", "midband_gain_db"))
+    upper = _metric(metrics, ("ac", "upper_3db_hz"))
+    swing = _metric(metrics, ("tran", "vout_peak_to_peak_v"))
+    if gain is None or gain < MIN_GAIN_DB:
+        failures.append("gain_collapse")
+    if upper is None or upper < MIN_UPPER_3DB_HZ:
+        failures.append("bandwidth_collapse")
+    if swing is None or swing < MIN_VOUT_PEAK_TO_PEAK_V:
+        failures.append("output_swing_collapse")
+    return failures
+
+
+def write_candidate_artifacts(
+    output_dir: Path,
+    *,
+    candidate_id: str,
+    family: str,
+    baseline_netlist: str,
+    baseline_devices: str,
+    trial_netlist: str,
+    trial_devices: str,
+    params: dict[str, float],
+    objective: dict[str, Any],
+    dut_rel_path: str = DUT_REL_PATH,
+    devices_rel_path: str = DEVICES_REL_PATH,
+) -> None:
+    spec = _family_spec(family)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    patch_text = _unified_patch(baseline_netlist, trial_netlist, dut_rel_path)
+    patch_text += _unified_patch(baseline_devices, trial_devices, devices_rel_path)
+    proposal = {
+        "candidate_id": candidate_id,
+        "phase": "phase2a_area",
+        "agent": "optimizer",
+        "hypothesis": spec.hypothesis,
+        "primary_objective": "area",
+        "changed_blocks": list(spec.changed_blocks),
+        "files_touched": [dut_rel_path, devices_rel_path],
+        "expected_effect": {
+            "performance_nrmse_combined": "unknown",
+            "area_total_p": "decrease",
+            "power_score_basis_w": "unknown",
+        },
+        "risk": spec.risk,
+        "patch": patch_text,
+    }
+    notes = [
+        "# Q5 Bandpass Targeted Trial",
+        "",
+        f"candidate_id: {candidate_id}",
+        f"family: {family}",
+        f"params: {json.dumps(params, sort_keys=True)}",
+        f"objective: {json.dumps(_json_safe(objective), sort_keys=True)}",
+        "",
+        _topology_note(spec),
+        "Performance is the Optuna objective. Best selection switches to minimum area_total_p once performance_nrmse_combined is at or below 0.75.",
+        "",
+    ]
+    (output_dir / "proposal.json").write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "patch.diff").write_text(patch_text, encoding="utf-8")
+    (output_dir / "notes.md").write_text("\n".join(notes), encoding="utf-8")
+
+
+def resolve_baseline_workspace(
+    repo_root: Path,
+    baseline_workspace: Path | None,
+    baseline_summary: Path | None,
+    family: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    repo = repo_root.resolve()
+    if baseline_workspace is not None:
+        workspace = _resolve_under_repo(repo, baseline_workspace)
+        return workspace, {"source": "explicit", "baseline_workspace": str(workspace)}
+    if baseline_summary is not None:
+        return _workspace_from_summary_path(repo, _resolve_under_repo(repo, baseline_summary), "explicit_summary")
+
+    if family == "q1-cap-feedback-highpass":
+        trial_0066_workspace = repo / "Best" / "trial_0066" / "workspace"
+        if _is_workspace(trial_0066_workspace):
+            return trial_0066_workspace.resolve(), {"source": "best_trial_0066"}
+
+    latest = _latest_output_active_sink_workspace(repo)
+    if latest is not None:
+        return latest
+    raise FileNotFoundError("no q5 output active sink best_trial_summary.json baseline found")
+
+
+def run_sweep(args: argparse.Namespace) -> int:
+    repo_root = args.repo_root.resolve()
+    config = load_runner_config(args.config).model_dump(mode="json")
+    spec = _family_spec(args.family)
+    fixed_params = _fixed_params_from_args(spec, args)
+    baseline_workspace, baseline_source = resolve_baseline_workspace(
+        repo_root,
+        args.baseline_workspace,
+        args.baseline_summary,
+        spec.slug,
+    )
+    baseline_netlist = (baseline_workspace / "dummy_neural_amp.scs").read_text(encoding="utf-8")
+    baseline_devices = (baseline_workspace / "devices.csv").read_text(encoding="utf-8")
+    timestamp = args.timestamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    sweep_root = repo_root / str(config["artifact_root"]) / "sweeps" / f"q5-bandpass-{spec.slug}" / timestamp
+    sweep_root.mkdir(parents=True, exist_ok=True)
+    (sweep_root / "baseline_source.json").write_text(
+        json.dumps({**baseline_source, "baseline_workspace": str(baseline_workspace)}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    if args.trials <= 0:
+        raise ValueError("--trials must be positive")
+
+    best: dict[str, Any] | None = None
+    active_spec = spec
+    batch_results: list[dict[str, Any]] = []
+    autotune_events_path = sweep_root / "range_autotune_events.jsonl"
+
+    def record_and_maybe_adapt(result: dict[str, Any]) -> None:
+        nonlocal active_spec
+        batch_results.append(result)
+        if len(batch_results) < RANGE_AUTOTUNE_BATCH_SIZE:
+            return
+        active_spec, events = adapt_param_ranges_for_batch(active_spec, batch_results, fixed_params)
+        if events:
+            with autotune_events_path.open("a", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(json.dumps(_json_safe(event), sort_keys=True) + "\n")
+        batch_results.clear()
+
+    optuna = _load_optuna()
+    if optuna is None:
+        rng = random.Random(args.seed)
+        for index in range(args.trials):
+            result = _run_trial(index, _random_params(active_spec, rng, fixed_params), args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
+            best = _pick_best(best, result)
+            record_and_maybe_adapt(result)
+    else:
+        sampler = optuna.samplers.TPESampler(seed=args.seed)
+        study = optuna.create_study(direction="minimize", study_name=args.study_name, sampler=sampler)
+
+        def objective(trial: Any) -> float:
+            params = _suggest_params(active_spec, trial, fixed_params)
+            result = _run_trial(trial.number, params, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
+            nonlocal best
+            best = _pick_best(best, result)
+            record_and_maybe_adapt(result)
+            return _objective_value_for_study(result["objective"])
+
+        study.optimize(objective, n_trials=args.trials, timeout=args.timeout_seconds)
+
+    if best is not None:
+        (sweep_root / "best_trial_summary.json").write_text(json.dumps(_json_safe(best), indent=2) + "\n", encoding="utf-8")
+        best_candidate = sweep_root / "best_candidate"
+        source = Path(best["trial_dir"])
+        best_candidate.mkdir(parents=True, exist_ok=True)
+        for name in ("proposal.json", "patch.diff", "notes.md"):
+            shutil.copy2(source / name, best_candidate / name)
+    return 0
+
+
+def _fixed_params_from_args(spec: FamilySpec, args: argparse.Namespace) -> dict[str, Any]:
+    input_pr_topology = getattr(args, "input_pr_topology", None)
+    if input_pr_topology is None:
+        return {}
+    if spec.slug != "dual-input-highpass-output-sink":
+        raise ValueError("--input-pr-topology is only valid for dual-input-highpass-output-sink")
+    return {"input_pr_topology": input_pr_topology}
+
+
+def _run_trial(
+    index: int,
+    params: dict[str, float],
+    args: argparse.Namespace,
+    repo_root: Path,
+    config: dict[str, Any],
+    sweep_root: Path,
+    baseline_netlist: str,
+    baseline_devices: str,
+) -> dict[str, Any]:
+    spec = _family_spec(args.family)
+    trial_no = index + 1
+    candidate_id = f"{spec.candidate_prefix}-trial-{trial_no:04d}"
+    trial_dir = sweep_root / f"trial_{trial_no:04d}"
+    workspace_dir = trial_dir / "workspace"
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    netlist, devices = build_q5_bandpass_artifacts(baseline_netlist, baseline_devices, spec.slug, params)
+    (trial_dir / "dummy_neural_amp.scs").write_text(netlist, encoding="utf-8")
+    (trial_dir / "devices.csv").write_text(devices, encoding="utf-8")
+    (trial_dir / "params.json").write_text(json.dumps(params, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (workspace_dir / "dummy_neural_amp.scs").write_text(netlist, encoding="utf-8")
+    (workspace_dir / "devices.csv").write_text(devices, encoding="utf-8")
+    _write_workspace_config(repo_root, config, workspace_dir)
+
+    pending_objective = {"objective": math.inf, "rejected": True, "reason": "not_verified", "penalties": {}}
+    write_candidate_artifacts(
+        trial_dir,
+        candidate_id=candidate_id,
+        family=spec.slug,
+        baseline_netlist=baseline_netlist,
+        baseline_devices=baseline_devices,
+        trial_netlist=netlist,
+        trial_devices=devices,
+        params=params,
+        objective=pending_objective,
+        dut_rel_path=str(config["dut_netlist"]),
+        devices_rel_path=str(config["devices_csv"]),
+    )
+
+    review = _review_trial(repo_root, config, trial_dir, workspace_dir, candidate_id)
+    verification_status = "not_run"
+    metrics: dict[str, Any] = {}
+    if review.get("passed") and not args.no_verify:
+        verification_status, metrics = _verify_trial(config, repo_root, workspace_dir, trial_dir, candidate_id)
+    elif args.no_verify:
+        verification_status = "skipped"
+
+    objective = evaluate_raw_trial_objective(bool(review.get("passed")), verification_status, metrics)
+    (trial_dir / "objective.json").write_text(json.dumps(_json_safe(objective), indent=2) + "\n", encoding="utf-8")
+    write_candidate_artifacts(
+        trial_dir,
+        candidate_id=candidate_id,
+        family=spec.slug,
+        baseline_netlist=baseline_netlist,
+        baseline_devices=baseline_devices,
+        trial_netlist=netlist,
+        trial_devices=devices,
+        params=params,
+        objective=objective,
+        dut_rel_path=str(config["dut_netlist"]),
+        devices_rel_path=str(config["devices_csv"]),
+    )
+    result = {
+        "trial_no": trial_no,
+        "candidate_id": candidate_id,
+        "trial_dir": str(trial_dir),
+        "params": params,
+        "review": review,
+        "verification_status": verification_status,
+        "metrics": metrics,
+        "objective": objective,
+    }
+    (trial_dir / "trial_summary.json").write_text(json.dumps(_json_safe(result), indent=2) + "\n", encoding="utf-8")
+    return result
+
+
+def _build_bandpass_netlist(baseline_netlist: str, spec: FamilySpec, params: dict[str, float]) -> str:
+    lines = _retune_netlist_lines(baseline_netlist, spec, params)
+    if spec.ce1_diode_topology is not None:
+        lines = _rewrite_ce1_diode_lines(lines, spec.ce1_diode_topology)
+    q1_input_node = _q1_rewire_node(spec)
+    if q1_input_node is not None:
+        lines = [_rewrite_q1_input_line(line, q1_input_node) if line.startswith("Q1 ") else line for line in lines]
+    if spec.allow_q5_lf_servo:
+        lines = [_rewrite_q5_lf_servo_line(line) if line.startswith("Q5 ") else line for line in lines]
+    lines = _insert_support_blocks(lines, spec.slug, params)
+    return "\n".join(lines) + "\n"
+
+
+def _retune_netlist_lines(baseline_netlist: str, spec: FamilySpec, params: dict[str, float]) -> list[str]:
+    existing_resistors = _existing_param_devices(spec, params, "resistor")
+    existing_caps = _existing_param_devices(spec, params, "capacitor")
+    support_names = _support_device_names(spec)
+    removed_names = _removed_device_names(spec)
+    seen: set[str] = set()
+    lines: list[str] = []
+    for line in baseline_netlist.splitlines():
+        name = line.split(maxsplit=1)[0] if line.strip() else ""
+        if name in support_names or name in removed_names:
+            continue
+        if name in existing_resistors:
+            lines.append(_replace_assignment(line, "l", _format_um(existing_resistors[name])))
+            seen.add(name)
+        elif name in existing_caps:
+            lines.append(_replace_assignment(line, "m", _format_multiplier(existing_caps[name])))
+            seen.add(name)
+        else:
+            lines.append(line)
+    missing = sorted((set(existing_resistors) | set(existing_caps)) - seen)
+    if missing:
+        raise ValueError("baseline netlist missing swept devices: " + ", ".join(missing))
+    return lines
+
+
+def _insert_support_blocks(lines: list[str], family: str, params: dict[str, float]) -> list[str]:
+    insertions = _support_insertions(family, params)
+    if not insertions:
+        return lines
+
+    inserted = [False for _ in insertions]
+    output: list[str] = []
+    for line in lines:
+        output.append(line)
+        for index, (anchor, block) in enumerate(insertions):
+            if not inserted[index] and line.startswith(anchor + " "):
+                output.extend(block)
+                inserted[index] = True
+    if not all(inserted):
+        missing = [anchor for was_inserted, (anchor, _block) in zip(inserted, insertions) if not was_inserted]
+        raise ValueError("baseline netlist missing support insertion anchor: " + ", ".join(missing))
+    return output
+
+
+def _support_insertions(family: str, params: dict[str, float]) -> list[tuple[str, list[str]]]:
+    insertions: list[tuple[str, list[str]]] = []
+    if family in _CE1_DIODE_FAMILY_TOPOLOGY:
+        insertions.extend(_ce1_diode_support_insertions(family, params))
+    if family in {"input-highpass", "input-highpass-output-sink"}:
+        insertions.append(
+            (
+                "RVREF",
+                [
+                    f"CIN VIN B1 GND {CAP_MODEL} m={_format_multiplier(params['CIN_m'])}",
+                    f"RBIN B1 VREF GND {RES_MODEL} l={_format_um(params['RBIN_l'])} w=5.73u m=1",
+                ],
+            )
+        )
+    if family == "dual-input-highpass-output-sink":
+        insertions.append(
+            (
+                "RVREF",
+                _dual_input_diode_support_lines(params),
+            )
+        )
+    if family == "q1-cap-feedback-highpass":
+        insertions.extend(_input_diode_support_insertions(params))
+    if family == "input-highpass-damped-miller":
+        insertions.append(
+            (
+                "RVREF",
+                [
+                    f"CIN VIN B1 GND {CAP_MODEL} m={_format_multiplier(params['CIN_m'])}",
+                    f"RBIN B1 VREF GND {RES_MODEL} l={_format_um(params['RBIN_l'])} w=5.73u m=1",
+                ],
+            )
+        )
+        insertions.append(
+            (
+                "CP2",
+                [
+                    f"RZ12 NDRV NZ12 GND {RES_MODEL} l={_format_um(params['RZ12_l'])} w=5.73u m=1",
+                    f"CM12 NZ12 N1 GND {CAP_MODEL} m={_format_multiplier(params['CM12_m'])}",
+                ],
+            )
+        )
+        insertions.append(
+            (
+                "CP3",
+                [
+                    f"RZOUT VOUT NZOUT GND {RES_MODEL} l={_format_um(params['RZOUT_l'])} w=5.73u m=1",
+                    f"CMOUT NZOUT NDRV GND {CAP_MODEL} m={_format_multiplier(params['CMOUT_m'])}",
+                ],
+            )
+        )
+    if family == "lf-servo-damped-zero-shaping":
+        insertions.append(
+            (
+                "CP2",
+                [
+                    f"RZ12 NDRV NZ12 GND {RES_MODEL} l={_format_um(params['RZ12_l'])} w=5.73u m=1",
+                    f"CM12 NZ12 N1 GND {CAP_MODEL} m={_format_multiplier(params['CM12_m'])}",
+                ],
+            )
+        )
+        insertions.append(
+            (
+                "CP3",
+                [
+                    f"RZOUT VOUT NZOUT GND {RES_MODEL} l={_format_um(params['RZOUT_l'])} w=5.73u m=1",
+                    f"CMOUT NZOUT NDRV GND {CAP_MODEL} m={_format_multiplier(params['CMOUT_m'])}",
+                ],
+            )
+        )
+    if family in {"lf-servo-bq4", "active-lf-servo-bq4", "lf-servo-damped-zero-shaping"}:
+        insertions.append(
+            (
+                "RQ5B",
+                [
+                    f"RQ5FB VOUT BQ5 GND {RES_MODEL} l={_format_um(params['RQ5FB_l'])} w=5.73u m=1",
+                    f"CQ5 BQ5 GND GND {CAP_MODEL} m={_format_multiplier(params['CQ5_m'])}",
+                ],
+            )
+        )
+    if family == "feedback-lowpass-n1":
+        insertions.append(("CP2", [f"CM12 NDRV N1 GND {CAP_MODEL} m={_format_multiplier(params['CM12_m'])}"]))
+    if family == "feedback-lowpass-output":
+        insertions.append(("CP3", [f"CMOUT VOUT NDRV GND {CAP_MODEL} m={_format_multiplier(params['CMOUT_m'])}"]))
+    return insertions
+
+
+def _input_diode_support_insertions(params: dict[str, Any]) -> list[tuple[str, list[str]]]:
+    topology = _input_pr_topology(params)
+    return [
+        ("CIN1", _input_stage_diode_lines("1", "B1", topology, params["DIN1_m"])),
+        ("CIN2", _input_stage_diode_lines("2", "B2", topology, params["DIN2_m"])),
+    ]
+
+
+def _dual_input_diode_support_lines(params: dict[str, Any]) -> list[str]:
+    topology = _input_pr_topology(params)
+    return [
+        f"CIN1 VIN B1 GND {CAP_MODEL} m={_format_multiplier(params['CIN1_m'])}",
+        *_input_stage_diode_lines("1", "B1", topology, params["DIN1_m"]),
+        f"CIN2 B1 B2 GND {CAP_MODEL} m={_format_multiplier(params['CIN2_m'])}",
+        *_input_stage_diode_lines("2", "B2", topology, params["DIN2_m"]),
+    ]
+
+
+def _input_pr_topology(params: dict[str, Any]) -> str:
+    topology = str(params.get("input_pr_topology", ""))
+    if topology not in INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES:
+        raise ValueError(f"unknown input diode pseudo-resistor topology: {topology}")
+    return topology
+
+
+def _input_stage_diode_lines(stage: str, node: str, topology: str, multiplier: float) -> list[str]:
+    m_value = _format_multiplier(multiplier)
+    names = _input_stage_diode_names(stage)
+    if topology == "b2b-cc":
+        return [
+            _input_diode_line(names[0], node, f"NHP{stage}C", m_value),
+            _input_diode_line(names[1], "VREF", f"NHP{stage}C", m_value),
+        ]
+    if topology == "b2b-ca":
+        return [
+            _input_diode_line(names[0], f"NHP{stage}A", node, m_value),
+            _input_diode_line(names[1], f"NHP{stage}A", "VREF", m_value),
+        ]
+    if topology == "dual-b2b":
+        return [
+            _input_diode_line(names[0], node, f"NHP{stage}K", m_value),
+            _input_diode_line(names[1], "VREF", f"NHP{stage}K", m_value),
+            _input_diode_line(names[2], f"NHP{stage}A", node, m_value),
+            _input_diode_line(names[3], f"NHP{stage}A", "VREF", m_value),
+        ]
+    if topology == "series2-cc":
+        return [
+            _input_diode_line(names[0], node, f"NHP{stage}K1", m_value),
+            _input_diode_line(names[1], f"NHP{stage}M", f"NHP{stage}K1", m_value),
+            _input_diode_line(names[2], f"NHP{stage}M", f"NHP{stage}K2", m_value),
+            _input_diode_line(names[3], "VREF", f"NHP{stage}K2", m_value),
+        ]
+    if topology == "reverse-antiparallel":
+        return [
+            _input_diode_line(names[0], node, "VREF", m_value),
+            _input_diode_line(names[1], "VREF", node, m_value),
+        ]
+    raise ValueError(f"unknown input diode pseudo-resistor topology: {topology}")
+
+
+def _input_diode_line(name: str, anode: str, cathode: str, multiplier: str) -> str:
+    return f"{name} {anode} {cathode} {DIODE_MODEL} m={multiplier}"
+
+
+def _input_diode_device_names(topology: str) -> tuple[str, ...]:
+    names: list[str] = []
+    for stage in ("1", "2"):
+        stage_names = _input_stage_diode_names(stage)
+        names.extend(stage_names[:4] if topology in {"dual-b2b", "series2-cc"} else stage_names[:2])
+    return tuple(names)
+
+
+def _input_stage_diode_names(stage: str) -> tuple[str, str, str, str]:
+    return (f"DHP{stage}A", f"DHP{stage}B", f"DHP{stage}C", f"DHP{stage}D")
+
+
+def _removed_device_names(spec: FamilySpec) -> set[str]:
+    if spec.slug in {"q1-cap-feedback-highpass", "dual-input-highpass-output-sink"}:
+        return {"RBIN1", "RBIN2"}
+    return set()
+
+
+def _rewrite_ce1_diode_lines(lines: list[str], topology: str) -> list[str]:
+    if not topology.startswith("ce1-series-extender"):
+        return lines
+    return [_rewrite_re1b_bottom_node(line, "E1D") if line.startswith("RE1B ") else line for line in lines]
+
+
+def _rewrite_re1b_bottom_node(line: str, bottom_node: str) -> str:
+    parts = line.split()
+    if len(parts) < 6 or parts[0] != "RE1B" or parts[1] != "E1B":
+        raise ValueError("CE1 series-extender family requires baseline RE1B from E1B")
+    parts[2] = bottom_node
+    return " ".join(parts)
+
+
+def _ce1_diode_support_insertions(family: str, params: dict[str, float]) -> list[tuple[str, list[str]]]:
+    if family == "ce1-b2b-shunt-cc":
+        return [("CE1", [_diode_line("DCE1A1", "E1B", "NCE1A", params), _diode_line("DCE1A2", "GND", "NCE1A", params)])]
+    if family == "ce1-b2b-shunt-ca":
+        return [("CE1", [_diode_line("DCE1A1", "NCE1A", "E1B", params), _diode_line("DCE1A2", "NCE1A", "GND", params)])]
+    if family == "ce1-b2b-shunt-dual":
+        return [
+            (
+                "CE1",
+                [
+                    _diode_line("DCE1A1", "E1B", "NCE1K", params),
+                    _diode_line("DCE1A2", "GND", "NCE1K", params),
+                    _diode_line("DCE1A3", "NCE1A", "E1B", params),
+                    _diode_line("DCE1A4", "NCE1A", "GND", params),
+                ],
+            )
+        ]
+    if family == "ce1-b2b-shunt-series2":
+        return [
+            (
+                "CE1",
+                [
+                    _diode_line("DCE1A1", "E1B", "NCE1K1", params),
+                    _diode_line("DCE1A2", "NCE1M", "NCE1K1", params),
+                    _diode_line("DCE1A3", "NCE1M", "NCE1K2", params),
+                    _diode_line("DCE1A4", "GND", "NCE1K2", params),
+                ],
+            )
+        ]
+    if family == "ce1-b2b-shunt-vref":
+        return [("CE1", [_diode_line("DCE1A1", "E1B", "NCE1V", params), _diode_line("DCE1A2", "VREF", "NCE1V", params)])]
+    if family == "ce1-series-extender-cc":
+        return [("RE1B", [_diode_line("DCE1B1", "E1D", "NCE1B", params), _diode_line("DCE1B2", "GND", "NCE1B", params)])]
+    if family == "ce1-series-extender-ca":
+        return [("RE1B", [_diode_line("DCE1B1", "NCE1B", "E1D", params), _diode_line("DCE1B2", "NCE1B", "GND", params)])]
+    if family == "ce1-series-extender-series2":
+        return [
+            (
+                "RE1B",
+                [
+                    _diode_line("DCE1B1", "E1D", "NCE1BK1", params),
+                    _diode_line("DCE1B2", "E1DX", "NCE1BK1", params),
+                    _diode_line("DCE1B3", "E1DX", "NCE1BK2", params),
+                    _diode_line("DCE1B4", "GND", "NCE1BK2", params),
+                ],
+            )
+        ]
+    if family == "ce1-series-extender-split-bleed":
+        return [
+            (
+                "RE1B",
+                [
+                    f"RE1BS E1D GND GND {RES_MODEL} l={_format_um(params['RE1BS_l'])} w=5.73u m=1",
+                    _diode_line("DCE1B1", "E1D", "NCE1B", params),
+                    _diode_line("DCE1B2", "GND", "NCE1B", params),
+                ],
+            )
+        ]
+    if family == "ce1-series-extender-vref":
+        return [("RE1B", [_diode_line("DCE1B1", "E1D", "NCE1BV", params), _diode_line("DCE1B2", "VREF", "NCE1BV", params)])]
+    if family == "ce1-collector-assisted-cc":
+        return [
+            (
+                "CE1",
+                [
+                    f"CME1 E1B N1 GND {CAP_MODEL} m={_format_multiplier(params['CME1_m'])}",
+                    _diode_line("DCE1C1", "E1B", "NCE1C", params),
+                    _diode_line("DCE1C2", "N1", "NCE1C", params),
+                ],
+            )
+        ]
+    if family == "ce1-collector-assisted-ca":
+        return [
+            (
+                "CE1",
+                [
+                    f"CME1 E1B N1 GND {CAP_MODEL} m={_format_multiplier(params['CME1_m'])}",
+                    _diode_line("DCE1C1", "NCE1C", "E1B", params),
+                    _diode_line("DCE1C2", "NCE1C", "N1", params),
+                ],
+            )
+        ]
+    if family == "ce1-collector-assisted-series2":
+        return [
+            (
+                "CE1",
+                [
+                    f"CME1 E1B N1 GND {CAP_MODEL} m={_format_multiplier(params['CME1_m'])}",
+                    _diode_line("DCE1C1", "E1B", "NCE1CK1", params),
+                    _diode_line("DCE1C2", "NCE1CM", "NCE1CK1", params),
+                    _diode_line("DCE1C3", "NCE1CM", "NCE1CK2", params),
+                    _diode_line("DCE1C4", "N1", "NCE1CK2", params),
+                ],
+            )
+        ]
+    if family == "ce1-collector-assisted-damped":
+        return [
+            (
+                "CE1",
+                [
+                    f"RME1 N1 NCE1M GND {RES_MODEL} l={_format_um(params['RME1_l'])} w=5.73u m=1",
+                    f"CME1 E1B NCE1M GND {CAP_MODEL} m={_format_multiplier(params['CME1_m'])}",
+                    _diode_line("DCE1C1", "E1B", "NCE1C", params),
+                    _diode_line("DCE1C2", "N1", "NCE1C", params),
+                ],
+            )
+        ]
+    if family == "ce1-driver-assisted-cc":
+        return [
+            (
+                "CE1",
+                [
+                    f"CME1 E1B NDRV GND {CAP_MODEL} m={_format_multiplier(params['CME1_m'])}",
+                    _diode_line("DCE1C1", "E1B", "NCE1C", params),
+                    _diode_line("DCE1C2", "NDRV", "NCE1C", params),
+                ],
+            )
+        ]
+    raise ValueError(f"unknown CE1 diode family: {family}")
+
+
+def _diode_line(name: str, anode: str, cathode: str, params: dict[str, float]) -> str:
+    return f"{name} {anode} {cathode} {DIODE_MODEL} m={_format_multiplier(params[f'{name}_m'])}"
+
+
+def _topology_note(spec: FamilySpec) -> str:
+    if spec.ce1_diode_topology is not None:
+        if spec.ce1_diode_topology.startswith("ce1-series-extender"):
+            return "CE1 is reduced and RE1B is returned through a diode reverse-leakage extender so CE1 remains a direct AC bypass."
+        if spec.ce1_diode_topology.startswith("ce1-collector-assisted") or spec.ce1_diode_topology == "ce1-driver-assisted-cc":
+            return "CE1 is reduced and assisted by a small collector/driver capacitor plus a back-to-back diode leakage path."
+        return "CE1 is reduced and E1B receives a back-to-back diode pseudo-resistor leakage shunt."
+    if spec.slug == "dual-input-highpass-output-sink":
+        return "Trial_0146 Q1 input remains on B2 while CIN1/CIN2 are reduced and RBIN1/RBIN2 are replaced by diode pseudo-resistor leakage paths."
+    if spec.slug == "q1-cap-feedback-highpass":
+        return "Trial_0066 Q1 input remains on B2 while CIN1/CIN2 are reduced and RBIN1/RBIN2 are replaced by diode pseudo-resistor leakage paths."
+    if spec.slug == "lf-servo-damped-zero-shaping":
+        return "Q5 is rewired into a BQ4 LF servo and NDRV/N1/VOUT are shaped with series-damped compensation branches."
+    if _q1_rewire_node(spec) is not None:
+        return "Q1 input is rewired through B1/CIN/RBIN for this high-pass family."
+    if spec.allow_q5_lf_servo:
+        return "Q5 is rewired from the output sink into a weak BQ4 low-frequency servo."
+    return "Q1/Q2/Q3/Q4/Q5 topology lines are preserved."
+
+
+def _q1_rewire_node(spec: FamilySpec) -> str | None:
+    if spec.q1_input_node is not None:
+        return spec.q1_input_node
+    if spec.allow_q1_input_highpass:
+        return "B1"
+    return None
+
+
+def _rewrite_q1_input_line(line: str, input_node: str) -> str:
+    parts = line.split()
+    if len(parts) >= 6 and parts[0] == "Q1" and parts[2] == input_node:
+        return line
+    if len(parts) < 6 or parts[0] != "Q1" or parts[2] != "VIN":
+        raise ValueError("input high-pass family requires baseline Q1 base connected to VIN")
+    parts[2] = input_node
+    return " ".join(parts)
+
+
+def _rewrite_q5_lf_servo_line(line: str) -> str:
+    if not _is_q5_output_sink_line(line):
+        raise ValueError("lf-servo-bq4 family requires baseline Q5 output sink topology")
+    parts = line.split()
+    parts[1:5] = ["BQ4", "BQ5", "EQ5", "GND"]
+    return " ".join(parts)
+
+
+def _build_bandpass_devices(baseline_devices: str, spec: FamilySpec, params: dict[str, float]) -> str:
+    input_io = StringIO(baseline_devices)
+    reader = csv.DictReader(input_io)
+    if reader.fieldnames is None:
+        raise ValueError("devices.csv missing header")
+    fieldnames = list(reader.fieldnames)
+    support_names = _support_device_names(spec)
+    removed_names = _removed_device_names(spec)
+    resistor_values = _existing_param_devices(spec, params, "resistor")
+    cap_values = _existing_param_devices(spec, params, "capacitor")
+    seen: set[str] = set()
+    rows: list[dict[str, str]] = []
+    for row in reader:
+        name = str(row.get("name") or "")
+        if name in support_names or name in removed_names:
+            continue
+        if name in resistor_values:
+            row["seg_length"] = _format_um(resistor_values[name])
+            seen.add(name)
+        if name in cap_values:
+            row["multiplier"] = _format_multiplier(cap_values[name])
+            seen.add(name)
+        rows.append(row)
+    missing = sorted((set(resistor_values) | set(cap_values)) - seen)
+    if missing:
+        raise ValueError("devices.csv missing swept devices: " + ", ".join(missing))
+
+    for name, param in spec.params.items():
+        if not param.support:
+            continue
+        if param.kind == "resistor":
+            rows.append(_resistor_row(fieldnames, param.device, params[name]))
+        elif param.kind == "capacitor":
+            rows.append(_capacitor_row(fieldnames, param.device, params[name]))
+        elif param.kind == "diode":
+            rows.append(_diode_row(fieldnames, param.device))
+        else:
+            raise ValueError(f"unsupported support device kind: {param.kind}")
+
+    if spec.slug in {"q1-cap-feedback-highpass", "dual-input-highpass-output-sink"}:
+        for diode_name in _input_diode_device_names(_input_pr_topology(params)):
+            rows.append(_diode_row(fieldnames, diode_name))
+
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def _validate_q_topology_policy(spec: FamilySpec, baseline: dict[str, str], generated: dict[str, str]) -> None:
+    for name, line in baseline.items():
+        new_line = generated.get(name)
+        if new_line == line:
+            continue
+        q1_input_node = _q1_rewire_node(spec)
+        if name == "Q1" and q1_input_node is not None and _is_q1_input_highpass_rewire(line, new_line or "", q1_input_node):
+            continue
+        if name == "Q5" and spec.allow_q5_lf_servo and _is_q5_lf_servo_line(new_line or ""):
+            continue
+        raise ValueError(f"{name} topology line changed")
+
+
+def _is_q1_input_highpass_rewire(before: str, after: str, input_node: str) -> bool:
+    old = before.split()
+    new = after.split()
+    return (
+        len(old) == len(new)
+        and len(old) >= 6
+        and old[0] == new[0] == "Q1"
+        and old[2] == "VIN"
+        and new[2] == input_node
+        and old[:2] == new[:2]
+        and old[3:] == new[3:]
+    )
+
+
+def _is_q5_output_sink_line(line: str) -> bool:
+    parts = line.split()
+    return len(parts) >= 6 and parts[:5] == ["Q5", "VOUT", "BQ5", "EQ5", "GND"] and parts[5] == NPN_Q5_MODEL
+
+
+def _is_q5_lf_servo_line(line: str) -> bool:
+    parts = line.split()
+    return len(parts) >= 6 and parts[:5] == ["Q5", "BQ4", "BQ5", "EQ5", "GND"] and parts[5] == NPN_Q5_MODEL
+
+
+def _existing_param_devices(spec: FamilySpec, params: dict[str, float], kind: str) -> dict[str, float]:
+    return {
+        param.device: params[name]
+        for name, param in spec.params.items()
+        if name in params and param.kind == kind and not param.support
+    }
+
+
+def _support_device_names(spec: FamilySpec) -> set[str]:
+    return {param.device for param in spec.params.values() if param.support}
+
+
+def _review_trial(repo_root: Path, config: dict[str, Any], trial_dir: Path, workspace_dir: Path, candidate_id: str) -> dict[str, Any]:
+    amptest_config = json.loads((repo_root / str(config["amptest_config"])).read_text(encoding="utf-8"))
+    reviewer = DeterministicReviewer(
+        allowed_files={str(config["dut_netlist"]), str(config["devices_csv"])},
+        dut_subckt=str(amptest_config["dut_subckt"]),
+        dut_pins_order=[str(pin) for pin in amptest_config["dut_pins_order"]],
+    )
+    result = reviewer.review(trial_dir, workspace_dir, candidate_id)
+    (trial_dir / "review.json").write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    return result.model_dump(mode="json")
+
+
+def _verify_trial(
+    config: dict[str, Any],
+    repo_root: Path,
+    workspace_dir: Path,
+    trial_dir: Path,
+    candidate_id: str,
+) -> tuple[str, dict[str, Any]]:
+    verifier_config = config["verifier"]
+    verifier = Verifier(
+        command=str(verifier_config["command"]),
+        timeout_seconds=int(verifier_config["timeout_seconds"]),
+        min_interval_seconds=int(verifier_config["min_interval_seconds"]),
+        required_outputs=list(verifier_config["required_outputs"]),
+    )
+    result = verifier.run(candidate_id, repo_root, workspace_dir, trial_dir)
+    metrics_path = trial_dir / "ppa_metrics.json"
+    metrics: dict[str, Any] = {}
+    if metrics_path.exists():
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            metrics = {}
+    return result.status, metrics
+
+
+def _latest_output_active_sink_workspace(repo_root: Path) -> tuple[Path, dict[str, Any]] | None:
+    sweeps_root = repo_root / Q5_OUTPUT_ACTIVE_SWEEPS_REL_PATH
+    if not sweeps_root.exists():
+        return None
+    summaries = sorted(
+        sweeps_root.glob("*/best_trial_summary.json"),
+        key=lambda path: (path.stat().st_mtime, path.parent.name),
+        reverse=True,
+    )
+    for summary_path in summaries:
+        result = _workspace_from_summary_path(repo_root, summary_path, "latest_q5_output_active_sink_summary")
+        if result is not None:
+            return result
+    return None
+
+
+def _workspace_from_summary_path(repo_root: Path, summary_path: Path, source_name: str) -> tuple[Path, dict[str, Any]] | None:
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    workspace = _workspace_from_trial_summary(repo_root, summary)
+    if workspace is None:
+        best_candidate = summary_path.parent / "best_candidate"
+        if _is_workspace(best_candidate):
+            workspace = best_candidate.resolve()
+    if workspace is None:
+        return None
+    return workspace, {
+        "source": source_name,
+        "summary_path": str(summary_path),
+        "candidate_id": summary.get("candidate_id"),
+    }
+
+
+def _workspace_from_trial_summary(repo_root: Path, summary: dict[str, Any]) -> Path | None:
+    raw = summary.get("trial_dir")
+    if not raw:
+        return None
+    trial_dir = _resolve_under_repo(repo_root, Path(str(raw)))
+    candidates = (trial_dir / "workspace", trial_dir)
+    for candidate in candidates:
+        if _is_workspace(candidate):
+            return candidate.resolve()
+    return None
+
+
+def _is_workspace(path: Path) -> bool:
+    return (path / "dummy_neural_amp.scs").exists() and (path / "devices.csv").exists()
+
+
+def _resolve_under_repo(repo_root: Path, value: Path) -> Path:
+    repo = repo_root.resolve()
+    resolved = value.resolve() if value.is_absolute() else (repo / value).resolve()
+    try:
+        resolved.relative_to(repo)
+    except ValueError as exc:
+        raise ValueError(f"path_outside_repo: {value}") from exc
+    return resolved
+
+
+def _q_device_lines(netlist: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in netlist.splitlines():
+        parts = line.split(maxsplit=1)
+        if not parts:
+            continue
+        name = parts[0]
+        if len(name) > 1 and name.startswith("Q") and name[1:].isdigit():
+            result[name] = line
+    return result
+
+
+def _validate_params(spec: FamilySpec, params: dict[str, float]) -> None:
+    expected = set(spec.params)
+    missing = sorted(expected - set(params))
+    if missing:
+        raise ValueError("missing sweep params: " + ", ".join(missing))
+    unknown = sorted(set(params) - expected)
+    if unknown:
+        raise ValueError("unknown sweep params: " + ", ".join(unknown))
+    for name, value in params.items():
+        spec_param = spec.params[name]
+        if spec_param.kind == "choice":
+            if value not in spec_param.choices:
+                raise ValueError(f"{name} must be one of: {', '.join(spec_param.choices)}")
+            continue
+        parsed = _finite_float(value)
+        if parsed is None or parsed <= 0.0:
+            raise ValueError(f"{name} must be positive finite")
+
+
+def _family_spec(family: str) -> FamilySpec:
+    try:
+        return FAMILY_SPECS[family]
+    except KeyError as exc:
+        raise ValueError(f"unknown Q5 bandpass family: {family}") from exc
+
+
+def adapt_param_ranges_for_batch(
+    spec: FamilySpec,
+    batch_results: list[dict[str, Any]],
+    fixed_params: dict[str, Any] | None = None,
+) -> tuple[FamilySpec, list[dict[str, Any]]]:
+    fixed_params = fixed_params or {}
+    ranked = sorted(batch_results, key=_best_rank)
+    top_results = ranked[:RANGE_AUTOTUNE_TOP_N]
+    if len(top_results) < RANGE_AUTOTUNE_TOP_N:
+        return spec, []
+
+    adjusted_params = dict(spec.params)
+    events: list[dict[str, Any]] = []
+    for name, param in spec.params.items():
+        if name in fixed_params or param.kind == "choice":
+            continue
+        samples = []
+        for result in top_results:
+            result_params = result.get("params", {})
+            value = _finite_float(result_params.get(name))
+            if value is None or value <= 0.0:
+                continue
+            effective_param = _effective_param_spec(spec, name, result_params, param)
+            samples.append((value, effective_param))
+        if len(samples) < RANGE_AUTOTUNE_TOP_N:
+            continue
+        positions = [_param_range_position(value, effective_param) for value, effective_param in samples]
+        high_count = sum(position >= RANGE_AUTOTUNE_HIGH_FRACTION for position in positions)
+        low_count = sum(position <= RANGE_AUTOTUNE_LOW_FRACTION for position in positions)
+        if high_count >= RANGE_AUTOTUNE_EDGE_COUNT:
+            current = samples[0][1]
+            new_param = ParamSpec(
+                param.device,
+                current.low,
+                current.high * RANGE_AUTOTUNE_EXPANSION_FACTOR,
+                param.log_scale,
+                param.kind,
+                param.support,
+                param.choices,
+            )
+            adjusted_params[name] = new_param
+            events.append(_range_autotune_event(name, "high", current, new_param, high_count, top_results))
+        elif low_count >= RANGE_AUTOTUNE_EDGE_COUNT:
+            current = samples[0][1]
+            new_param = ParamSpec(
+                param.device,
+                current.low / RANGE_AUTOTUNE_EXPANSION_FACTOR,
+                current.high,
+                param.log_scale,
+                param.kind,
+                param.support,
+                param.choices,
+            )
+            adjusted_params[name] = new_param
+            events.append(_range_autotune_event(name, "low", current, new_param, low_count, top_results))
+    if not events:
+        return spec, []
+    return FamilySpec(
+        slug=spec.slug,
+        candidate_prefix=spec.candidate_prefix,
+        hypothesis=spec.hypothesis,
+        changed_blocks=spec.changed_blocks,
+        risk=spec.risk,
+        params=adjusted_params,
+        allow_q1_input_highpass=spec.allow_q1_input_highpass,
+        q1_input_node=spec.q1_input_node,
+        allow_q5_lf_servo=spec.allow_q5_lf_servo,
+        ce1_diode_topology=spec.ce1_diode_topology,
+    ), events
+
+
+def _param_range_position(value: float, param: ParamSpec) -> float:
+    if param.log_scale:
+        return (math.log(value) - math.log(param.low)) / (math.log(param.high) - math.log(param.low))
+    return (value - param.low) / (param.high - param.low)
+
+
+def _range_autotune_event(
+    name: str,
+    edge: str,
+    before: ParamSpec,
+    after: ParamSpec,
+    edge_count: int,
+    top_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "param": name,
+        "name": name,
+        "edge": edge,
+        "edge_count": edge_count,
+        "top_n": RANGE_AUTOTUNE_TOP_N,
+        "batch_size": RANGE_AUTOTUNE_BATCH_SIZE,
+        "old_low": before.low,
+        "old_high": before.high,
+        "new_low": after.low,
+        "new_high": after.high,
+        "trigger_trial_nos": [result.get("trial_no") for result in top_results],
+    }
+
+
+def _resistor_row(fieldnames: list[str], name: str, length_um: float) -> dict[str, str]:
+    row = {field: "" for field in fieldnames}
+    row.update(
+        {
+            "name": name,
+            "type": "resistor",
+            "count": "1",
+            "segments": "1",
+            "seg_length": _format_um(length_um),
+            "seg_width": "5.73u",
+            "include_in_ppa": "true",
+        }
+    )
+    return row
+
+
+def _capacitor_row(fieldnames: list[str], name: str, multiplier: float) -> dict[str, str]:
+    row = {field: "" for field in fieldnames}
+    row.update(
+        {
+            "name": name,
+            "type": "capacitor",
+            "count": "1",
+            "width": "11.5u",
+            "length": "11.7u",
+            "multiplier": _format_multiplier(multiplier),
+            "include_in_ppa": "true",
+        }
+    )
+    return row
+
+
+def _diode_row(fieldnames: list[str], name: str) -> dict[str, str]:
+    row = {field: "" for field in fieldnames}
+    row.update(
+        {
+            "name": name,
+            "type": "diode",
+            "count": "1",
+            "width": "1.00u",
+            "length": "1.00u",
+            "multiplier": "1",
+            "include_in_ppa": "true",
+        }
+    )
+    return row
+
+
+def _replace_assignment(line: str, key: str, value: str) -> str:
+    prefix = f"{key}="
+    parts = line.split()
+    for index, part in enumerate(parts):
+        if part.startswith(prefix):
+            parts[index] = prefix + value
+            return " ".join(parts)
+    return line + f" {prefix}{value}"
+
+
+def _write_workspace_config(repo_root: Path, config: dict[str, Any], workspace_dir: Path) -> None:
+    source = repo_root / str(config["amptest_config"])
+    data = json.loads(source.read_text(encoding="utf-8"))
+    data["dut_netlist"] = "dummy_neural_amp.scs"
+    data.setdefault("input_files", {})
+    data["input_files"]["devices_csv"] = "devices.csv"
+    data["input_files"]["ac_csv"] = "run/ac.csv"
+    data["input_files"]["tran_csv"] = "run/tran.csv"
+    (workspace_dir / "config.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def _unified_patch(before: str, after: str, rel_path: str) -> str:
+    body = "".join(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{rel_path}",
+            tofile=f"b/{rel_path}",
+        )
+    )
+    if not body:
+        return ""
+    return f"diff --git a/{rel_path} b/{rel_path}\n" + body
+
+
+def _suggest_params(spec: FamilySpec, trial: Any, fixed_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    fixed_params = fixed_params or {}
+    params: dict[str, Any] = {}
+    for name, param in spec.params.items():
+        if name in fixed_params:
+            params[name] = fixed_params[name]
+            continue
+        param = _effective_param_spec(spec, name, params, param)
+        if param.kind == "choice":
+            params[name] = trial.suggest_categorical(name, list(param.choices))
+        else:
+            params[name] = trial.suggest_float(name, param.low, param.high, log=param.log_scale)
+    return params
+
+
+def _random_params(spec: FamilySpec, rng: random.Random, fixed_params: dict[str, Any] | None = None) -> dict[str, Any]:
+    fixed_params = fixed_params or {}
+    params: dict[str, Any] = {}
+    for name, param in spec.params.items():
+        if name in fixed_params:
+            params[name] = fixed_params[name]
+            continue
+        param = _effective_param_spec(spec, name, params, param)
+        if param.kind == "choice":
+            params[name] = rng.choice(param.choices)
+        elif param.log_scale:
+            params[name] = math.exp(rng.uniform(math.log(param.low), math.log(param.high)))
+        else:
+            params[name] = rng.uniform(param.low, param.high)
+    return params
+
+
+def _effective_param_spec(
+    spec: FamilySpec,
+    name: str,
+    params: dict[str, Any],
+    default: ParamSpec,
+) -> ParamSpec:
+    if spec.slug != "dual-input-highpass-output-sink" or name not in {"CIN1_m", "CIN2_m", "DIN1_m", "DIN2_m"}:
+        return default
+    original = FAMILY_SPECS[spec.slug].params[name]
+    if default.low != original.low or default.high != original.high:
+        return default
+    topology = _input_pr_topology(params)
+    low, high = INPUT_DIODE_PSEUDO_RESISTOR_RANGES[topology][name]
+    return ParamSpec(default.device, low, high, default.log_scale, default.kind, default.support, default.choices)
+
+
+def _metric(metrics: dict[str, Any], path: tuple[str, ...]) -> float | None:
+    value: Any = metrics
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return _finite_float(value)
+
+
+def _finite_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _rejected(reason: str) -> dict[str, Any]:
+    return {"objective": math.inf, "rejected": True, "reason": reason, "penalties": {}, "failure_modes": []}
+
+
+def _load_optuna():
+    try:
+        import optuna  # type: ignore
+    except ImportError:
+        return None
+    return optuna
+
+
+def _pick_best(best: dict[str, Any] | None, candidate: dict[str, Any]) -> dict[str, Any]:
+    if best is None:
+        return candidate
+    if _best_rank(candidate) < _best_rank(best):
+        return candidate
+    return best
+
+
+def _best_rank(result: dict[str, Any]) -> tuple[int, float, float]:
+    objective = result["objective"]
+    if objective.get("rejected"):
+        return (2, math.inf, math.inf)
+
+    performance = _finite_float(objective.get("performance_nrmse_combined"))
+    if performance is None:
+        performance = _finite_float(objective.get("objective"))
+    area = _finite_float(objective.get("area_total_p"))
+
+    if performance is not None and performance <= MAX_AREA_OBJECTIVE_PERFORMANCE_NRMSE and area is not None:
+        return (0, area, performance)
+    if performance is not None:
+        return (1, performance, area if area is not None else math.inf)
+    return (2, math.inf, math.inf)
+
+
+def _objective_value_for_study(objective: dict[str, Any]) -> float:
+    value = _finite_float(objective.get("objective"))
+    return value if value is not None else REJECTED_OBJECTIVE_FOR_STUDY
+
+
+def _format_um(value: float) -> str:
+    number = float(value)
+    if number.is_integer():
+        return f"{int(number)}u"
+    return f"{number:.6g}u"
+
+
+def _format_multiplier(value: float) -> str:
+    number = float(value)
+    rounded = int(round(number))
+    return str(max(1, rounded))
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run a Q5 bandpass-targeted Optuna sweep from the best Q5 output active sink baseline.")
+    parser.add_argument("--config", type=Path, default=Path("runner_config.json"))
+    parser.add_argument("--repo-root", type=Path, default=Path("."))
+    parser.add_argument("--family", choices=sorted(FAMILY_SPECS), required=True)
+    parser.add_argument("--baseline-workspace", type=Path)
+    parser.add_argument("--baseline-summary", type=Path)
+    parser.add_argument("--trials", type=int, default=300)
+    parser.add_argument("--timeout-seconds", type=int)
+    parser.add_argument("--study-name", default="q5-bandpass")
+    parser.add_argument("--timestamp")
+    parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument(
+        "--input-pr-topology",
+        choices=INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES,
+        help="Limit dual-input-highpass-output-sink to one input diode pseudo-resistor topology.",
+    )
+    parser.add_argument("--no-verify", action="store_true", help="Generate trial artifacts and review them without running the verifier.")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return run_sweep(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

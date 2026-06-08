@@ -16,8 +16,8 @@ def scratch_case(name: str) -> Path:
     return root
 
 
-def write_fixture(root: Path) -> tuple[Path, Path]:
-    amptest = root / "amptest"
+def write_fixture(root: Path, amptest_dir: str = "amptest") -> tuple[Path, Path]:
+    amptest = root / amptest_dir
     workspace = root / "workspace"
     ssh_dir = root / ".ssh"
     amptest.mkdir(parents=True, exist_ok=True)
@@ -80,6 +80,61 @@ class TestSshVerifier(unittest.TestCase):
             "me59@163.180.160.78:/home/me59/amplifier_runner/p1-b001-c01/run/ppa_metrics.json",
             calls[3][0],
         )
+
+    def test_copies_configured_amptest_v2p3_coreonly_support_files_and_static_log(self):
+        repo_root, workspace = write_fixture(
+            scratch_case("configured_amptest_v2p3_coreonly"),
+            "amptest_v2p3/COREONLY",
+        )
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch("langgraph_runner.ssh_verifier.subprocess.run", side_effect=fake_run):
+            result = run_ssh_verifier(
+                ssh_target="me59@163.180.160.78",
+                remote_root="/home/me59/amplifier_runner",
+                candidate_id="p1-b001-c01",
+                repo_root=repo_root,
+                local_candidate_dir=workspace,
+                amptest_dir=Path("amptest_v2p3/COREONLY"),
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn(str(repo_root / "amptest_v2p3" / "COREONLY" / "ppa_wrapper.py"), calls[1][0])
+        self.assertIn(str(repo_root / "amptest_v2p3" / "COREONLY" / "ppa_wrapper_core.py"), calls[1][0])
+        self.assertIn(str(repo_root / "amptest_v2p3" / "COREONLY" / "runtest.sh"), calls[1][0])
+        self.assertIn(
+            "me59@163.180.160.78:/home/me59/amplifier_runner/p1-b001-c01/run/spectre_tran_static.log",
+            calls[3][0],
+        )
+
+    def test_uploads_candidate_veriloga_sidecar_when_present(self):
+        repo_root, workspace = write_fixture(scratch_case("candidate_veriloga_sidecar"))
+        (workspace / "dummy_neural_amp.scs").write_text(
+            'simulator lang=spectre\nahdl_include "dummy_neural_amp.va"\n',
+            encoding="utf-8",
+        )
+        (workspace / "dummy_neural_amp.va").write_text("module dummy_neural_amp_va; endmodule\n", encoding="utf-8")
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch("langgraph_runner.ssh_verifier.subprocess.run", side_effect=fake_run):
+            result = run_ssh_verifier(
+                ssh_target="me59@163.180.160.78",
+                remote_root="/home/me59/amplifier_runner",
+                candidate_id="p1-b001-c01",
+                repo_root=repo_root,
+                local_candidate_dir=workspace,
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn(str(workspace / "dummy_neural_amp.va"), calls[1][0])
 
     def test_stops_after_first_failed_remote_step(self):
         repo_root, workspace = write_fixture(scratch_case("failed_remote_step"))

@@ -3,11 +3,15 @@ import math
 import uuid
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from tools.optuna_q5_bandpass_sweep import (
     FAMILY_SPECS,
+    INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES,
     build_q5_bandpass_artifacts,
     evaluate_raw_trial_objective,
+    _objective_value_for_study,
+    _run_trial,
     resolve_baseline_workspace,
 )
 
@@ -73,6 +77,27 @@ CE2,capacitor,1,11.5u,11.7u,47734195,,,,,,true
 CP1,capacitor,1,11.5u,11.7u,2026,,,,,,true
 CP2,capacitor,1,11.5u,11.7u,522,,,,,,true
 CP3,capacitor,1,11.5u,11.7u,3539,,,,,,true
+"""
+
+TRIAL_0066_NETLIST = BASE_NETLIST.replace(
+    "RVREF VIN VREF GND res_high_po_5p73 l=39409.1u w=5.73u m=1\n\nRC1",
+    "\n".join(
+        [
+            "RVREF VIN VREF GND res_high_po_5p73 l=39409.1u w=5.73u m=1",
+            "CIN1 VIN B1 GND cap_vpp_11p5x11p7_m1m4_noshield m=3093904",
+            "RBIN1 B1 VREF GND res_high_po_5p73 l=6096.81u w=5.73u m=1",
+            "CIN2 B1 B2 GND cap_vpp_11p5x11p7_m1m4_noshield m=590811",
+            "RBIN2 B2 VREF GND res_high_po_5p73 l=1707.87u w=5.73u m=1",
+            "",
+            "RC1",
+        ]
+    ),
+).replace("Q1 N1 VIN E1 GND", "Q1 N1 B2 E1 GND")
+
+TRIAL_0066_DEVICES = BASE_DEVICES + """CIN1,capacitor,1,11.5u,11.7u,3093904,,,,,,true
+RBIN1,resistor,1,,,,1,6096.81u,5.73u,,,true
+CIN2,capacitor,1,11.5u,11.7u,590811,,,,,,true
+RBIN2,resistor,1,,,,1,1707.87u,5.73u,,,true
 """
 
 PARAMS = {
@@ -151,6 +176,60 @@ PARAMS = {
         "CE1_m": 58000000.0,
         "CE2_m": 52000000.0,
         "RQ4FB_l": 10500.0,
+    },
+    "active-lf-servo-bq4": {
+        "RQ5U_l": 6200.0,
+        "RQ5B_l": 1400.0,
+        "RQ5FB_l": 125000.0,
+        "REQ5_l": 5200.0,
+        "CQ5_m": 120.0,
+        "CP1_m": 2400.0,
+        "CP2_m": 1600.0,
+        "CP3_m": 9000.0,
+        "CE1_m": 66000000.0,
+        "CE2_m": 45000000.0,
+        "RQ4FB_l": 8000.0,
+    },
+    "q1-cap-feedback-highpass": {
+        "input_pr_topology": "b2b-cc",
+        "CIN1_m": 240000.0,
+        "CIN2_m": 60000.0,
+        "DIN1_m": 3.0,
+        "DIN2_m": 4.0,
+    },
+    "lf-servo-damped-zero-shaping": {
+        "RQ5FB_l": 400000.0,
+        "CQ5_m": 40.0,
+        "RZ12_l": 1800.0,
+        "CM12_m": 20.0,
+        "RZOUT_l": 8000.0,
+        "CMOUT_m": 140.0,
+        "CP1_m": 1000.0,
+        "CP2_m": 800.0,
+        "CP3_m": 12000.0,
+        "RQ4FB_l": 8000.0,
+    },
+    "ce1-b2b-shunt-cc": {
+        "CE1_m": 50000.0,
+        "CE2_m": 45000000.0,
+        "RE1B_l": 32000.0,
+        "DCE1A1_m": 3.0,
+        "DCE1A2_m": 3.0,
+    },
+    "ce1-series-extender-cc": {
+        "CE1_m": 60000.0,
+        "CE2_m": 44000000.0,
+        "RE1B_l": 18000.0,
+        "DCE1B1_m": 2.0,
+        "DCE1B2_m": 2.0,
+    },
+    "ce1-collector-assisted-cc": {
+        "CE1_m": 40000.0,
+        "CE2_m": 42000000.0,
+        "RE1B_l": 12000.0,
+        "CME1_m": 800.0,
+        "DCE1C1_m": 4.0,
+        "DCE1C2_m": 4.0,
     },
 }
 
@@ -312,15 +391,131 @@ class TestOptunaQ5BandpassSweep(unittest.TestCase):
         self.assertIn("RQ5FB,resistor,1,,,,1,90000u,5.73u,,,true", devices)
         self.assertIn("CQ5,capacitor,1,11.5u,11.7u,160,,,,,,true", devices)
 
-    def test_ac_shape_batch_launcher_runs_dual_input_sweep(self):
+    def test_active_lf_servo_bq4_replaces_q5_sink_and_sweeps_analysis_knobs(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            BASE_NETLIST,
+            BASE_DEVICES,
+            "active-lf-servo-bq4",
+            PARAMS["active-lf-servo-bq4"],
+        )
+
+        self.assertNotIn("Q5 VOUT BQ5 EQ5 GND npn_05v5_W1p00L1p00", netlist)
+        self.assertIn("Q5 BQ4 BQ5 EQ5 GND npn_05v5_W1p00L1p00", netlist)
+        self.assertIn("RQ5U VREF BQ5 GND res_high_po_5p73 l=6200u w=5.73u m=1", netlist)
+        self.assertIn("RQ5B BQ5 GND GND res_high_po_5p73 l=1400u w=5.73u m=1", netlist)
+        self.assertIn("RQ5FB VOUT BQ5 GND res_high_po_5p73 l=125000u w=5.73u m=1", netlist)
+        self.assertIn("REQ5 EQ5 GND GND res_high_po_5p73 l=5200u w=5.73u m=1", netlist)
+        self.assertIn("CQ5 BQ5 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=120", netlist)
+        self.assertIn("RQ4FB VOUT BQ4 GND res_high_po_5p73 l=8000u w=5.73u m=1", netlist)
+        self.assertIn("CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=66000000", netlist)
+        self.assertIn("CE2 E2B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=45000000", netlist)
+        self.assertIn("CP1 N1 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=2400", netlist)
+        self.assertIn("CP2 NDRV GND GND cap_vpp_11p5x11p7_m1m4_noshield m=1600", netlist)
+        self.assertIn("CP3 VOUT GND GND cap_vpp_11p5x11p7_m1m4_noshield m=9000", netlist)
+        self.assertIn("RQ5FB,resistor,1,,,,1,125000u,5.73u,,,true", devices)
+        self.assertIn("CQ5,capacitor,1,11.5u,11.7u,120,,,,,,true", devices)
+        self.assertIn("CP1,capacitor,1,11.5u,11.7u,2400,,,,,,true", devices)
+        self.assertIn("CP2,capacitor,1,11.5u,11.7u,1600,,,,,,true", devices)
+
+    def test_q1_cap_feedback_highpass_replaces_rbin_with_diode_pseudoresistor(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            TRIAL_0066_NETLIST,
+            TRIAL_0066_DEVICES,
+            "q1-cap-feedback-highpass",
+            PARAMS["q1-cap-feedback-highpass"],
+        )
+
+        self.assertIn("Q1 N1 B2 E1 GND npn_05v5_W1p00L2p00", netlist)
+        self.assertIn("Q5 VOUT BQ5 EQ5 GND npn_05v5_W1p00L1p00", netlist)
+        self.assertIn("CIN1 VIN B1 GND cap_vpp_11p5x11p7_m1m4_noshield m=240000", netlist)
+        self.assertIn("CIN2 B1 B2 GND cap_vpp_11p5x11p7_m1m4_noshield m=60000", netlist)
+        self.assertNotIn("RBIN1 B1 VREF", netlist)
+        self.assertNotIn("RBIN2 B2 VREF", netlist)
+        self.assertIn("DHP1A B1 NHP1C diode_pd2nw_05v5 m=3", netlist)
+        self.assertIn("DHP1B VREF NHP1C diode_pd2nw_05v5 m=3", netlist)
+        self.assertIn("DHP2A B2 NHP2C diode_pd2nw_05v5 m=4", netlist)
+        self.assertIn("DHP2B VREF NHP2C diode_pd2nw_05v5 m=4", netlist)
+        self.assertNotIn("CFB ", netlist)
+        self.assertNotIn("RBHP ", netlist)
+        self.assertIn("CIN1,capacitor,1,11.5u,11.7u,240000,,,,,,true", devices)
+        self.assertIn("CIN2,capacitor,1,11.5u,11.7u,60000,,,,,,true", devices)
+        self.assertNotIn("RBIN1,resistor", devices)
+        self.assertNotIn("RBIN2,resistor", devices)
+        self.assertIn("DHP1A,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+        self.assertIn("DHP2B,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+
+    def test_q1_cap_feedback_highpass_exposes_five_input_diode_topologies(self):
+        spec = FAMILY_SPECS["q1-cap-feedback-highpass"]
+
+        self.assertIsNone(spec.q1_input_node)
+        self.assertEqual(spec.params["input_pr_topology"].kind, "choice")
+        self.assertEqual(spec.params["input_pr_topology"].choices, INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES)
+        self.assertEqual(len(INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES), 5)
+        self.assertLess(spec.params["CIN1_m"].high, 3093904.0)
+        self.assertLess(spec.params["CIN2_m"].high, 590811.0)
+        self.assertEqual(set(spec.params), {"input_pr_topology", "CIN1_m", "CIN2_m", "DIN1_m", "DIN2_m"})
+
+    def test_q1_input_diode_topologies_cover_back_to_back_series_and_reverse_paths(self):
+        expectations = {
+            "b2b-cc": ("DHP1A B1 NHP1C diode_pd2nw_05v5", 4),
+            "b2b-ca": ("DHP1A NHP1A B1 diode_pd2nw_05v5", 4),
+            "dual-b2b": ("DHP1D NHP1A VREF diode_pd2nw_05v5", 8),
+            "series2-cc": ("DHP1C NHP1M NHP1K2 diode_pd2nw_05v5", 8),
+            "reverse-antiparallel": ("DHP1A B1 VREF diode_pd2nw_05v5", 4),
+        }
+
+        for topology, (expected_line, diode_count) in expectations.items():
+            with self.subTest(topology=topology):
+                params = {**PARAMS["q1-cap-feedback-highpass"], "input_pr_topology": topology}
+                netlist, devices = build_q5_bandpass_artifacts(
+                    TRIAL_0066_NETLIST,
+                    TRIAL_0066_DEVICES,
+                    "q1-cap-feedback-highpass",
+                    params,
+                )
+
+                self.assertIn(expected_line, netlist)
+                self.assertEqual(netlist.count("diode_pd2nw_05v5"), diode_count)
+                self.assertNotIn("mos", netlist.lower())
+                self.assertEqual(devices.count(",diode,"), diode_count)
+
+    def test_lf_servo_damped_zero_shaping_combines_servo_with_series_compensation(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            BASE_NETLIST,
+            BASE_DEVICES,
+            "lf-servo-damped-zero-shaping",
+            PARAMS["lf-servo-damped-zero-shaping"],
+        )
+
+        self.assertIn("Q1 N1 VIN E1 GND npn_05v5_W1p00L2p00", netlist)
+        self.assertNotIn("Q5 VOUT BQ5 EQ5 GND npn_05v5_W1p00L1p00", netlist)
+        self.assertIn("Q5 BQ4 BQ5 EQ5 GND npn_05v5_W1p00L1p00", netlist)
+        self.assertIn("RQ5FB VOUT BQ5 GND res_high_po_5p73 l=400000u w=5.73u m=1", netlist)
+        self.assertIn("CQ5 BQ5 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=40", netlist)
+        self.assertIn("RZ12 NDRV NZ12 GND res_high_po_5p73 l=1800u w=5.73u m=1", netlist)
+        self.assertIn("CM12 NZ12 N1 GND cap_vpp_11p5x11p7_m1m4_noshield m=20", netlist)
+        self.assertIn("RZOUT VOUT NZOUT GND res_high_po_5p73 l=8000u w=5.73u m=1", netlist)
+        self.assertIn("CMOUT NZOUT NDRV GND cap_vpp_11p5x11p7_m1m4_noshield m=140", netlist)
+        self.assertIn("CP1 N1 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=1000", netlist)
+        self.assertIn("CP2 NDRV GND GND cap_vpp_11p5x11p7_m1m4_noshield m=800", netlist)
+        self.assertIn("CP3 VOUT GND GND cap_vpp_11p5x11p7_m1m4_noshield m=12000", netlist)
+        self.assertIn("RQ4FB VOUT BQ4 GND res_high_po_5p73 l=8000u w=5.73u m=1", netlist)
+        self.assertIn("RQ5FB,resistor,1,,,,1,400000u,5.73u,,,true", devices)
+        self.assertIn("CQ5,capacitor,1,11.5u,11.7u,40,,,,,,true", devices)
+        self.assertIn("RZ12,resistor,1,,,,1,1800u,5.73u,,,true", devices)
+        self.assertIn("CMOUT,capacitor,1,11.5u,11.7u,140,,,,,,true", devices)
+
+    def test_ac_shape_batch_launcher_runs_q1_cap_feedback_highpass_sweep(self):
         batch = Path("run_q5_ac_shape_sweeps.bat").read_text(encoding="utf-8")
 
         self.assertIn("python -m tools.optuna_q5_bandpass_sweep", batch)
-        self.assertIn("--family dual-input-highpass-output-sink", batch)
+        self.assertIn("--family q1-cap-feedback-highpass", batch)
         self.assertIn('--trials %TRIALS%', batch)
         self.assertIn('--timestamp %TIMESTAMP%', batch)
         self.assertIn('set "TRIALS=2000"', batch)
-        self.assertIn('set "TIMESTAMP=q5-dual-input-hp-cp3hi-6500-12000-2000"', batch)
+        self.assertIn('set "TIMESTAMP=q5-q1-cap-feedback-highpass-rerange2-2000"', batch)
+        self.assertNotIn("--family active-lf-servo-bq4", batch)
+        self.assertNotIn("--family dual-input-highpass-output-sink", batch)
         self.assertNotIn("--family input-highpass-output-sink", batch)
         self.assertNotIn("--family input-highpass-damped-miller", batch)
         self.assertNotIn("--family lf-servo-bq4", batch)
@@ -340,35 +535,272 @@ class TestOptunaQ5BandpassSweep(unittest.TestCase):
         self.assertEqual(spec.params["RBUF_l"].low, 4500.0)
         self.assertEqual(spec.params["RBUF_l"].high, 8500.0)
         self.assertEqual(spec.params["CP1_m"].low, 900.0)
-        self.assertEqual(spec.params["CP1_m"].high, 2400.0)
+        self.assertEqual(spec.params["CP1_m"].high, 3600.0)
+        self.assertEqual(spec.params["CP2_m"].low, 800.0)
+        self.assertEqual(spec.params["CP2_m"].high, 2200.0)
         self.assertEqual(spec.params["CP3_m"].low, 6500.0)
         self.assertEqual(spec.params["CP3_m"].high, 12000.0)
+        self.assertEqual(spec.params["CE1_m"].low, 52000000.0)
+        self.assertEqual(spec.params["CE1_m"].high, 72000000.0)
+        self.assertEqual(spec.params["CE2_m"].low, 42000000.0)
+        self.assertEqual(spec.params["CE2_m"].high, 90000000.0)
         self.assertEqual(spec.params["RQ4FB_l"].low, 11000.0)
-        self.assertEqual(spec.params["RQ4FB_l"].high, 18000.0)
+        self.assertEqual(spec.params["RQ4FB_l"].high, 32000.0)
 
-    def test_raw_objective_uses_combined_performance_without_penalties(self):
+    def test_active_lf_servo_family_uses_feedback_servo_and_rerun_high_side_ranges(self):
+        spec = FAMILY_SPECS["active-lf-servo-bq4"]
+
+        self.assertTrue(spec.allow_q5_lf_servo)
+        self.assertEqual(set(spec.params), {
+            "RQ5U_l",
+            "RQ5B_l",
+            "RQ5FB_l",
+            "REQ5_l",
+            "CQ5_m",
+            "CP1_m",
+            "CP2_m",
+            "CP3_m",
+            "CE1_m",
+            "CE2_m",
+            "RQ4FB_l",
+        })
+        expected_ranges = {
+            "RQ5U_l": (6000.0, 30000.0),
+            "RQ5B_l": (1200.0, 9000.0),
+            "RQ5FB_l": (50000.0, 160000.0),
+            "REQ5_l": (3500.0, 8000.0),
+            "CQ5_m": (1.0, 250.0),
+            "CP1_m": (700.0, 2400.0),
+            "CP2_m": (200.0, 1600.0),
+            "CP3_m": (8000.0, 14000.0),
+            "CE1_m": (56000000.0, 70000000.0),
+            "CE2_m": (20000000.0, 65000000.0),
+            "RQ4FB_l": (2000.0, 16000.0),
+        }
+        for name, (low, high) in expected_ranges.items():
+            with self.subTest(param=name):
+                self.assertEqual(spec.params[name].low, low)
+                self.assertEqual(spec.params[name].high, high)
+
+    def test_candidate_2_and_3_families_use_analysis_knobs(self):
+        cap_feedback = FAMILY_SPECS["q1-cap-feedback-highpass"]
+        self.assertIsNone(cap_feedback.q1_input_node)
+        self.assertFalse(cap_feedback.allow_q5_lf_servo)
+        self.assertEqual(set(cap_feedback.params), {
+            "input_pr_topology",
+            "CIN1_m",
+            "CIN2_m",
+            "DIN1_m",
+            "DIN2_m",
+        })
+        cap_feedback_ranges = {
+            "CIN1_m": (20000.0, 1200000.0),
+            "CIN2_m": (5000.0, 250000.0),
+            "DIN1_m": (1.0, 64.0),
+            "DIN2_m": (1.0, 64.0),
+        }
+        for name, (low, high) in cap_feedback_ranges.items():
+            with self.subTest(family="q1-cap-feedback-highpass", param=name):
+                self.assertEqual(cap_feedback.params[name].low, low)
+                self.assertEqual(cap_feedback.params[name].high, high)
+
+        damped = FAMILY_SPECS["lf-servo-damped-zero-shaping"]
+        self.assertTrue(damped.allow_q5_lf_servo)
+        self.assertEqual(set(damped.params), {
+            "RQ5FB_l",
+            "CQ5_m",
+            "RZ12_l",
+            "CM12_m",
+            "RZOUT_l",
+            "CMOUT_m",
+            "CP1_m",
+            "CP2_m",
+            "CP3_m",
+            "RQ4FB_l",
+        })
+        damped_ranges = {
+            "RQ5FB_l": (250000.0, 1200000.0),
+            "CQ5_m": (1.0, 120.0),
+            "RZ12_l": (600.0, 4000.0),
+            "CM12_m": (1.0, 80.0),
+            "RZOUT_l": (4000.0, 30000.0),
+            "CMOUT_m": (10.0, 180.0),
+            "CP1_m": (200.0, 1800.0),
+            "CP2_m": (200.0, 1400.0),
+            "CP3_m": (6500.0, 22000.0),
+            "RQ4FB_l": (2000.0, 16000.0),
+        }
+        for name, (low, high) in damped_ranges.items():
+            with self.subTest(family="lf-servo-damped-zero-shaping", param=name):
+                self.assertEqual(damped.params[name].low, low)
+                self.assertEqual(damped.params[name].high, high)
+
+    def test_ce1_diode_area_families_expose_three_groups_of_five_topologies(self):
+        expected_groups = {
+            "shunt": {
+                "ce1-b2b-shunt-cc",
+                "ce1-b2b-shunt-ca",
+                "ce1-b2b-shunt-dual",
+                "ce1-b2b-shunt-series2",
+                "ce1-b2b-shunt-vref",
+            },
+            "series": {
+                "ce1-series-extender-cc",
+                "ce1-series-extender-ca",
+                "ce1-series-extender-series2",
+                "ce1-series-extender-split-bleed",
+                "ce1-series-extender-vref",
+            },
+            "collector": {
+                "ce1-collector-assisted-cc",
+                "ce1-collector-assisted-ca",
+                "ce1-collector-assisted-series2",
+                "ce1-collector-assisted-damped",
+                "ce1-driver-assisted-cc",
+            },
+        }
+
+        all_expected = set().union(*expected_groups.values())
+        self.assertTrue(all_expected.issubset(FAMILY_SPECS))
+        for family in all_expected:
+            with self.subTest(family=family):
+                spec = FAMILY_SPECS[family]
+                self.assertLessEqual(spec.params["CE1_m"].high, 200000.0)
+                self.assertGreaterEqual(
+                    len([name for name, param in spec.params.items() if param.kind == "diode" and param.support]),
+                    2,
+                )
+
+    def test_ce1_b2b_shunt_common_cathode_generates_small_ce1_and_diode_rows(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            BASE_NETLIST,
+            BASE_DEVICES,
+            "ce1-b2b-shunt-cc",
+            PARAMS["ce1-b2b-shunt-cc"],
+        )
+
+        self.assertIn("CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=50000", netlist)
+        self.assertIn("RE1B E1B GND GND res_high_po_5p73 l=32000u w=5.73u m=1", netlist)
+        self.assertIn("DCE1A1 E1B NCE1A diode_pd2nw_05v5 m=3", netlist)
+        self.assertIn("DCE1A2 GND NCE1A diode_pd2nw_05v5 m=3", netlist)
+        self.assertIn("CE1,capacitor,1,11.5u,11.7u,50000,,,,,,true", devices)
+        self.assertIn("DCE1A1,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+        self.assertIn("DCE1A2,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+
+    def test_ce1_series_extender_rewires_re1b_bottom_into_leakage_node(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            BASE_NETLIST,
+            BASE_DEVICES,
+            "ce1-series-extender-cc",
+            PARAMS["ce1-series-extender-cc"],
+        )
+
+        self.assertIn("RE1B E1B E1D GND res_high_po_5p73 l=18000u w=5.73u m=1", netlist)
+        self.assertIn("CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=60000", netlist)
+        self.assertIn("DCE1B1 E1D NCE1B diode_pd2nw_05v5 m=2", netlist)
+        self.assertIn("DCE1B2 GND NCE1B diode_pd2nw_05v5 m=2", netlist)
+        self.assertIn("RE1B,resistor,1,,,,1,18000u,5.73u,,,true", devices)
+        self.assertIn("DCE1B1,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+
+    def test_ce1_collector_assisted_family_adds_miller_cap_and_reverse_leakage_path(self):
+        netlist, devices = build_q5_bandpass_artifacts(
+            BASE_NETLIST,
+            BASE_DEVICES,
+            "ce1-collector-assisted-cc",
+            PARAMS["ce1-collector-assisted-cc"],
+        )
+
+        self.assertIn("CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=40000", netlist)
+        self.assertIn("CME1 E1B N1 GND cap_vpp_11p5x11p7_m1m4_noshield m=800", netlist)
+        self.assertIn("DCE1C1 E1B NCE1C diode_pd2nw_05v5 m=4", netlist)
+        self.assertIn("DCE1C2 N1 NCE1C diode_pd2nw_05v5 m=4", netlist)
+        self.assertIn("CME1,capacitor,1,11.5u,11.7u,800,,,,,,true", devices)
+        self.assertIn("DCE1C2,diode,1,1.00u,1.00u,1,,,,,,true", devices)
+
+    def test_raw_objective_uses_area_when_performance_is_within_0_08(self):
         metrics = {
-            "performance_nrmse_combined": 0.11661416379072626,
+            "performance_nrmse_combined": 0.079,
             "ac": {"midband_gain_db": 39.5, "upper_3db_hz": 28152.0},
             "tran": {"vout_peak_to_peak_v": 0.20, "tran_nrmse_vs_target_filter": 0.9},
+            "area_power": {"area_total_p": 12345.0},
         }
 
         result = evaluate_raw_trial_objective(True, "passed", metrics)
 
         self.assertFalse(result["rejected"])
-        self.assertEqual(result["objective"], metrics["performance_nrmse_combined"])
+        self.assertEqual(result["objective"], metrics["area_power"]["area_total_p"])
         self.assertEqual(result["penalties"], {})
+
+        too_slow = evaluate_raw_trial_objective(True, "passed", {**metrics, "performance_nrmse_combined": 0.081})
+        self.assertTrue(too_slow["rejected"])
+        self.assertEqual(too_slow["reason"], "performance_above_0_08")
 
         rejected = evaluate_raw_trial_objective(True, "passed", {**metrics, "ac": {"midband_gain_db": 20.0, "upper_3db_hz": 28152.0}})
         self.assertTrue(rejected["rejected"])
         self.assertTrue(math.isinf(rejected["objective"]))
         self.assertEqual(rejected["reason"], "gain_collapse")
 
+    def test_rejected_objective_value_is_larger_than_area_scale(self):
+        self.assertGreater(
+            _objective_value_for_study({"objective": math.inf}),
+            1.0e20,
+        )
+        self.assertEqual(
+            _objective_value_for_study({"objective": 8.9e17}),
+            8.9e17,
+        )
 
-def _workspace(path: Path) -> Path:
+    def test_q1_cap_feedback_highpass_defaults_to_trial_0066_workspace(self):
+        repo = _scratch("q1_trial_0066_baseline")
+        workspace = _workspace(repo / "Best" / "trial_0066" / "workspace", TRIAL_0066_NETLIST, TRIAL_0066_DEVICES)
+
+        path, source = resolve_baseline_workspace(repo, None, None, "q1-cap-feedback-highpass")
+
+        self.assertEqual(path, workspace)
+        self.assertEqual(source["source"], "best_trial_0066")
+
+    def test_run_trial_uses_configured_file_scope_for_review(self):
+        repo = _scratch("q5_bandpass_configured_file_scope")
+        amptest_dir = repo / "amptest_v2p3" / "COREONLY"
+        amptest_dir.mkdir(parents=True)
+        (amptest_dir / "config.json").write_text(
+            json.dumps(
+                {
+                    "dut_subckt": "dummy_neural_amp",
+                    "dut_pins_order": ["GND", "VDD", "VIN", "VOUT", "VREF"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        config = {
+            "artifact_root": "automation_artifacts",
+            "amptest_config": "amptest_v2p3/COREONLY/config.json",
+            "dut_netlist": "amptest_v2p3/COREONLY/dummy_neural_amp.scs",
+            "devices_csv": "amptest_v2p3/COREONLY/devices.csv",
+        }
+        result = _run_trial(
+            0,
+            PARAMS["q1-cap-feedback-highpass"],
+            SimpleNamespace(family="q1-cap-feedback-highpass", no_verify=True),
+            repo,
+            config,
+            repo / "automation_artifacts" / "sweeps" / "q5-bandpass-q1-cap-feedback-highpass" / "scope-test",
+            TRIAL_0066_NETLIST,
+            TRIAL_0066_DEVICES,
+        )
+
+        self.assertTrue(result["review"]["passed"], result["review"])
+        proposal = json.loads((Path(result["trial_dir"]) / "proposal.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            proposal["files_touched"],
+            ["amptest_v2p3/COREONLY/dummy_neural_amp.scs", "amptest_v2p3/COREONLY/devices.csv"],
+        )
+
+
+def _workspace(path: Path, netlist: str = BASE_NETLIST, devices: str = BASE_DEVICES) -> Path:
     path.mkdir(parents=True, exist_ok=True)
-    (path / "dummy_neural_amp.scs").write_text(BASE_NETLIST, encoding="utf-8")
-    (path / "devices.csv").write_text(BASE_DEVICES, encoding="utf-8")
+    (path / "dummy_neural_amp.scs").write_text(netlist, encoding="utf-8")
+    (path / "devices.csv").write_text(devices, encoding="utf-8")
     return path.resolve()
 
 
