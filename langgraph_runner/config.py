@@ -13,6 +13,7 @@ class VerifierConfig(BaseModel):
     command: str
     timeout_seconds: int = Field(gt=0)
     min_interval_seconds: int = Field(ge=0)
+    cadence_workers: int = Field(default=1, gt=0)
     required_outputs: list[str] = Field(min_length=1)
 
 

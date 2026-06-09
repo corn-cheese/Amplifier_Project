@@ -1,0 +1,8 @@
+{
+  "base_trial": "trial_0146",
+  "topology": "single_series_damped_cin2_boost",
+  "added_path": "B1-RZIN2-ZIN2A-CIN2A-B2",
+  "RZIN2_l": "180u",
+  "CIN2A_m": 2000000,
+  "unchanged_core": true
+}

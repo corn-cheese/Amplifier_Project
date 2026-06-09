@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import difflib
 import json
 import math
 import random
 import shutil
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import StringIO
@@ -63,6 +66,30 @@ class FamilySpec:
     q1_input_node: str | None = None
     allow_q5_lf_servo: bool = False
     ce1_diode_topology: str | None = None
+
+
+@dataclass(frozen=True)
+class _TrialJob:
+    index: int
+    params: dict[str, Any]
+    study_trial: Any | None = None
+
+
+class _VerifierLaunchThrottle:
+    def __init__(self, min_interval_seconds: int):
+        self.min_interval_seconds = max(0, int(min_interval_seconds))
+        self._last_launch_monotonic: float | None = None
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        if self.min_interval_seconds <= 0:
+            return
+        with self._lock:
+            if self._last_launch_monotonic is not None:
+                remaining = self.min_interval_seconds - (time.monotonic() - self._last_launch_monotonic)
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._last_launch_monotonic = time.monotonic()
 
 
 CE1_DIODE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
@@ -174,6 +201,22 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
             "CP3_m": ParamSpec("CP3", 4500.0, 13000.0, True, "capacitor"),
             "CE1_m": ParamSpec("CE1", 15000000.0, 32000000.0, False, "capacitor"),
             "CE2_m": ParamSpec("CE2", 20000000.0, 42000000.0, False, "capacitor"),
+        },
+    ),
+    "area-capdown-tight-retune": FamilySpec(
+        slug="area-capdown-tight-retune",
+        candidate_prefix="q5-bp-area-capdown-tight",
+        hypothesis="Force CE1/CE2 into a tighter area-reduction range and retune the output load and Q4 feedback around the smaller emitter bypass caps.",
+        changed_blocks=("emitter_bypass_area_reduction", "q4_feedback_strength", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Smaller CE1/CE2 directly reduce area, but can move the lower cutoff up or weaken low-frequency gain unless RBUF/RQ4FB/CP tuning recovers the bandpass shape.",
+        params={
+            "CE1_m": ParamSpec("CE1", 5000000.0, 16000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 6000000.0, 18000000.0, False, "capacitor"),
+            "CP1_m": ParamSpec("CP1", 700.0, 2600.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 700.0, 3200.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 2500.0, 9000.0, True, "capacitor"),
+            "RBUF_l": ParamSpec("RBUF", 6000.0, 12000.0, False, "resistor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 6500.0, 13000.0, True, "resistor"),
         },
     ),
     "input-highpass": FamilySpec(
@@ -551,6 +594,7 @@ def run_sweep(args: argparse.Namespace) -> int:
     repo_root = args.repo_root.resolve()
     config = load_runner_config(args.config).model_dump(mode="json")
     spec = _family_spec(args.family)
+    cadence_workers = _cadence_worker_count(args)
     baseline_workspace, baseline_source = resolve_baseline_workspace(
         repo_root,
         args.baseline_workspace,
@@ -571,11 +615,16 @@ def run_sweep(args: argparse.Namespace) -> int:
         raise ValueError("--trials must be positive")
 
     best: dict[str, Any] | None = None
+    launch_throttle = _parallel_launch_throttle(config, cadence_workers)
     optuna = _load_optuna()
     if optuna is None:
         rng = random.Random(args.seed)
-        for index in range(args.trials):
-            result = _run_trial(index, _random_params(spec, rng), args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
+        jobs = [_TrialJob(index, _random_params(spec, rng)) for index in range(args.trials)]
+        for _job, result in _run_trial_jobs(
+            jobs,
+            lambda job: _run_one_trial_job(job, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices, launch_throttle),
+            cadence_workers,
+        ):
             best = _pick_best(best, result)
     else:
         sampler = optuna.samplers.TPESampler(seed=args.seed)
@@ -588,7 +637,26 @@ def run_sweep(args: argparse.Namespace) -> int:
             best = _pick_best(best, result)
             return _objective_value_for_study(result["objective"])
 
-        study.optimize(objective, n_trials=args.trials, timeout=args.timeout_seconds)
+        if cadence_workers == 1:
+            study.optimize(objective, n_trials=args.trials, timeout=args.timeout_seconds)
+        else:
+            deadline = _timeout_deadline(args.timeout_seconds)
+            launched = 0
+            while launched < args.trials and not _timeout_reached(deadline):
+                batch_jobs: list[_TrialJob] = []
+                while len(batch_jobs) < cadence_workers and launched < args.trials and not _timeout_reached(deadline):
+                    trial = study.ask()
+                    batch_jobs.append(_TrialJob(trial.number, _suggest_params(spec, trial), trial))
+                    launched += 1
+                if not batch_jobs:
+                    break
+                for job, result in _run_trial_jobs(
+                    batch_jobs,
+                    lambda item: _run_one_trial_job(item, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices, launch_throttle),
+                    cadence_workers,
+                ):
+                    study.tell(job.study_trial, _objective_value_for_study(result["objective"]))
+                    best = _pick_best(best, result)
 
     if best is not None:
         (sweep_root / "best_trial_summary.json").write_text(json.dumps(_json_safe(best), indent=2) + "\n", encoding="utf-8")
@@ -600,6 +668,71 @@ def run_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cadence_worker_count(args: argparse.Namespace) -> int:
+    count = int(getattr(args, "cadence_workers", 1))
+    if count <= 0:
+        raise ValueError("--cadence-workers must be positive")
+    return count
+
+
+def _parallel_launch_throttle(config: dict[str, Any], cadence_workers: int) -> _VerifierLaunchThrottle | None:
+    if cadence_workers <= 1:
+        return None
+    verifier_config = config.get("verifier")
+    if not isinstance(verifier_config, dict):
+        return None
+    return _VerifierLaunchThrottle(int(verifier_config.get("min_interval_seconds", 0)))
+
+
+def _run_one_trial_job(
+    job: _TrialJob,
+    args: argparse.Namespace,
+    repo_root: Path,
+    config: dict[str, Any],
+    sweep_root: Path,
+    baseline_netlist: str,
+    baseline_devices: str,
+    launch_throttle: _VerifierLaunchThrottle | None,
+) -> dict[str, Any]:
+    if launch_throttle is None:
+        return _run_trial(job.index, job.params, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
+    return _run_trial(
+        job.index,
+        job.params,
+        args,
+        repo_root,
+        config,
+        sweep_root,
+        baseline_netlist,
+        baseline_devices,
+        launch_throttle,
+    )
+
+
+def _run_trial_jobs(jobs: list[_TrialJob], runner: Any, cadence_workers: int) -> list[tuple[_TrialJob, dict[str, Any]]]:
+    if cadence_workers <= 1 or len(jobs) <= 1:
+        return [(job, runner(job)) for job in jobs]
+
+    results: list[tuple[_TrialJob, dict[str, Any]]] = []
+    with ThreadPoolExecutor(max_workers=cadence_workers) as executor:
+        futures = {executor.submit(runner, job): job for job in jobs}
+        for future in as_completed(futures):
+            job = futures[future]
+            results.append((job, future.result()))
+    results.sort(key=lambda item: item[0].index)
+    return results
+
+
+def _timeout_deadline(timeout_seconds: int | None) -> float | None:
+    if timeout_seconds is None:
+        return None
+    return time.monotonic() + max(0, int(timeout_seconds))
+
+
+def _timeout_reached(deadline: float | None) -> bool:
+    return deadline is not None and time.monotonic() >= deadline
+
+
 def _run_trial(
     index: int,
     params: dict[str, float],
@@ -609,10 +742,11 @@ def _run_trial(
     sweep_root: Path,
     baseline_netlist: str,
     baseline_devices: str,
+    launch_throttle: _VerifierLaunchThrottle | None = None,
 ) -> dict[str, Any]:
     spec = _family_spec(args.family)
     trial_no = index + 1
-    candidate_id = f"{spec.candidate_prefix}-trial-{trial_no:04d}"
+    candidate_id = _candidate_id(spec, sweep_root.name, trial_no)
     trial_dir = sweep_root / f"trial_{trial_no:04d}"
     workspace_dir = trial_dir / "workspace"
     trial_dir.mkdir(parents=True, exist_ok=True)
@@ -645,6 +779,8 @@ def _run_trial(
     verification_status = "not_run"
     metrics: dict[str, Any] = {}
     if review.get("passed") and not args.no_verify:
+        if launch_throttle is not None:
+            launch_throttle.wait()
         verification_status, metrics = _verify_trial(config, repo_root, workspace_dir, trial_dir, candidate_id)
     elif args.no_verify:
         verification_status = "skipped"
@@ -676,6 +812,26 @@ def _run_trial(
     }
     (trial_dir / "trial_summary.json").write_text(json.dumps(_json_safe(result), indent=2) + "\n", encoding="utf-8")
     return result
+
+
+def _candidate_id(spec: FamilySpec, timestamp: str, trial_no: int) -> str:
+    safe_timestamp = _candidate_id_part(timestamp)
+    if safe_timestamp:
+        return f"{spec.candidate_prefix}-{safe_timestamp}-trial-{trial_no:04d}"
+    return f"{spec.candidate_prefix}-trial-{trial_no:04d}"
+
+
+def _candidate_id_part(value: str) -> str:
+    output = []
+    previous_dash = False
+    for char in value.strip():
+        if char.isalnum() or char in {"_", "-"}:
+            output.append(char)
+            previous_dash = False
+        elif not previous_dash:
+            output.append("-")
+            previous_dash = True
+    return "".join(output).strip("-")
 
 
 def _build_bandpass_netlist(baseline_netlist: str, spec: FamilySpec, params: dict[str, float]) -> str:
@@ -1505,6 +1661,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--study-name", default="q5-bandpass")
     parser.add_argument("--timestamp")
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument("--cadence-workers", type=int, default=1, help="Number of Cadence verifier trials to run concurrently.")
     parser.add_argument("--no-verify", action="store_true", help="Generate trial artifacts and review them without running the verifier.")
     return parser
 

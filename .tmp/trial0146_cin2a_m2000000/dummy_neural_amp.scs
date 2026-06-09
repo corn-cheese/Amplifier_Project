@@ -1,0 +1,5 @@
+simulator lang=spectre
+
+subckt dummy_neural_amp GND VDD VIN VOUT VREF
+XAMPTEST_V2P3_INTERPRETED GND VDD VIN VOUT VREF dummy_neural_amp_amptest_v2p3_impl
+ends dummy_neural_amp

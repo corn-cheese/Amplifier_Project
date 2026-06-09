@@ -11,10 +11,13 @@ set "TOPOLOGY=%~3"
 set "TOPOLOGY_ARG="
 if not "%TOPOLOGY%"=="" set "TOPOLOGY_ARG=--input-pr-topology %TOPOLOGY%"
 
+set "CADENCE_WORKERS=%~4"
+if "%CADENCE_WORKERS%"=="" set "CADENCE_WORKERS=1"
+
 pushd "%~dp0\..\..\.."
 
-echo Running Q5 trial_0146 dual-input diode pseudo-resistor sweep with %TRIALS% trials, timestamp %TIMESTAMP%
-python "%~dp0optuna_q5_bandpass_sweep.py" --repo-root . --config "%~dp0runner_config.json" --family dual-input-highpass-output-sink --baseline-workspace "Best\q5-bp-dual-input-hp-output-sink-trial-0146-workflow\best_run\trial_0146\workspace" --trials %TRIALS% --timestamp %TIMESTAMP% %TOPOLOGY_ARG%
+echo Running Q5 trial_0146 dual-input diode pseudo-resistor sweep with %TRIALS% trials, timestamp %TIMESTAMP%, Cadence workers %CADENCE_WORKERS%
+python "%~dp0optuna_q5_bandpass_sweep.py" --repo-root . --config "%~dp0runner_config.json" --family dual-input-highpass-output-sink --baseline-workspace "Best\q5-bp-dual-input-hp-output-sink-trial-0146-workflow\best_run\trial_0146\workspace" --trials %TRIALS% --timestamp %TIMESTAMP% --cadence-workers %CADENCE_WORKERS% %TOPOLOGY_ARG%
 if errorlevel 1 goto fail
 
 popd

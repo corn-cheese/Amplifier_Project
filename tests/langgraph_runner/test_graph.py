@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 import unittest
@@ -881,6 +883,68 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(result["verification_results"][0]["candidate_id"], passing)
         self.assertTrue((paths.candidate_dir(passing) / "verification.json").exists())
         self.assertFalse((paths.candidate_dir(rejected) / "verification.json").exists())
+
+    def test_verify_queue_uses_configured_cadence_workers_for_parallel_verification(self):
+        repo_root = scratch_root("verify_queue_parallel_workers")
+        config_path = write_workflow_fixture(repo_root, batch_size=2)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["verifier"]["cadence_workers"] = 2
+        paths = graph_module.ArtifactPaths(repo_root=repo_root, artifact_root=repo_root / "automation_artifacts")
+        StateStore(paths, repo_root / "docs" / "contract.md").initialize()
+        candidate_ids = [
+            "p1-b001-c01-arch-20260605-120000",
+            "p1-b001-c02-arch-20260605-120000",
+        ]
+        for candidate_id in candidate_ids:
+            paths.candidate_dir(candidate_id).mkdir(parents=True, exist_ok=True)
+            paths.workspace_dir(candidate_id).mkdir(parents=True, exist_ok=True)
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def fake_run(self, candidate_id, repo_root_arg, workspace_dir, output_dir):
+            nonlocal active, max_active
+            del self, repo_root_arg, workspace_dir
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            result = graph_module.VerificationResult(
+                candidate_id=candidate_id,
+                status="passed",
+                metrics_path=str(output_dir / "ppa_metrics.json"),
+                report_path=str(output_dir / "ppa_report.log"),
+                spectre_logs=[],
+                performance_nrmse_combined=0.031,
+                area_total_p=42.0,
+                power_score_basis_w=0.0025,
+                errors=[],
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / "verification.json").write_text(result.model_dump_json(indent=2) + "\n", encoding="utf-8")
+            return result
+
+        with patch("langgraph_runner.graph.Verifier.run", autospec=True, side_effect=fake_run):
+            result = graph_module.verify_queue_node(
+                {
+                    "repo_root": str(repo_root),
+                    "run_id": "test",
+                    "config_path": str(config_path),
+                    "artifact_root": str(paths.artifact_root),
+                    "runner_config": config,
+                    "candidate_ids": candidate_ids,
+                    "review_results": [
+                        {"candidate_id": candidate_ids[0], "passed": True, "checks": {}, "errors": []},
+                        {"candidate_id": candidate_ids[1], "passed": True, "checks": {}, "errors": []},
+                    ],
+                }
+            )
+
+        self.assertEqual(result["verification_queue"], candidate_ids)
+        self.assertEqual([item["candidate_id"] for item in result["verification_results"]], candidate_ids)
+        self.assertEqual(max_active, 2)
 
     def test_assembly_error_does_not_enter_review_or_verification(self):
         repo_root = scratch_root("assembly_error_review_gate")

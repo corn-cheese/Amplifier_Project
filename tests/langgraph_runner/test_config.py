@@ -37,6 +37,15 @@ class TestRunnerConfig(unittest.TestCase):
 
         self.assertEqual(config.agent_backend.mode, "codex_exec")
         self.assertEqual(config.topology_brief_path, "docs/topology-exploration-brief.md")
+        self.assertEqual(config.verifier.cadence_workers, 1)
+
+    def test_verifier_accepts_configurable_cadence_workers(self):
+        config = minimal_config()
+        config["verifier"] = {**config["verifier"], "cadence_workers": 3}
+
+        parsed = RunnerConfig.model_validate(config)
+
+        self.assertEqual(parsed.verifier.cadence_workers, 3)
 
     def test_agent_backend_accepts_local_deterministic_mode(self):
         config = RunnerConfig.model_validate(

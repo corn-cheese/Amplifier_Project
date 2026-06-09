@@ -1,0 +1,39 @@
+design: q5-bp-dual-input-hp-output-sink-trial-0146
+
+[Area Recalculation]
+method: amptest_v2p3_preflight + amptest_v2p3.COREONLY.ppa_wrapper_core.analyze_area_power
+old_area_total_p: 1.0871473724e+18
+recalculated_area_total_p: 17530907161
+old_to_recalculated_ratio: 62013184.0537
+area_source: devices_csv
+
+[Area Breakdown]
+Q1: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q2: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=2, area_total_p=2
+Q3: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+Q4: type=pnp, source=devices_csv, count=1, netlist_m=1, area_each_p=11.56, area_total_p=11.56
+CE1: type=capacitor, source=devices_csv, count=1, netlist_m=62929414, area_each_p=134.55, area_total_p=8467152653.7
+CE2: type=capacitor, source=devices_csv, count=1, netlist_m=64133103, area_each_p=134.55, area_total_p=8629109008.65
+CP1: type=capacitor, source=devices_csv, count=1, netlist_m=1589, area_each_p=134.55, area_total_p=213799.95
+CP2: type=capacitor, source=devices_csv, count=1, netlist_m=1501, area_each_p=134.55, area_total_p=201959.55
+CP3: type=capacitor, source=devices_csv, count=1, netlist_m=10608, area_each_p=134.55, area_total_p=1427306.4
+Q5: type=npn, source=devices_csv, count=1, netlist_m=1, area_each_p=1, area_total_p=1
+CIN1: type=capacitor, source=devices_csv, count=1, netlist_m=2486389, area_each_p=134.55, area_total_p=334543639.95
+CIN2: type=capacitor, source=devices_csv, count=1, netlist_m=726723, area_each_p=134.55, area_total_p=97780579.65
+RVREF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=225814.143, area_total_p=225814.143
+RBIN1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=29326.5984, area_total_p=29326.5984
+RBIN2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=5733.7245, area_total_p=5733.7245
+RC1: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3680.08104, area_total_p=3680.08104
+RE1U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=135.397608, area_total_p=135.397608
+RE1B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=4622.53425, area_total_p=4622.53425
+RC2: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=2700.29115, area_total_p=2700.29115
+RQ4U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3872.41995, area_total_p=3872.41995
+RQ4R: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=7193.9577, area_total_p=7193.9577
+RQ4FB: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=90072.735, area_total_p=90072.735
+REQ4: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=677.53812, area_total_p=677.53812
+RE2U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=191.850141, area_total_p=191.850141
+RE2B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=3664.07715, area_total_p=3664.07715
+RBUF: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=40152.2874, area_total_p=40152.2874
+RQ5U: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=32019.2973, area_total_p=32019.2973
+RQ5B: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=6826.0917, area_total_p=6826.0917
+REQ5: type=resistor, source=netlist_lw, count=1, netlist_m=1, area_each_p=21512.5401, area_total_p=21512.5401

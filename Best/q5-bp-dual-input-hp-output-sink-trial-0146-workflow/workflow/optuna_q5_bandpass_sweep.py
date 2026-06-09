@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import difflib
 import json
@@ -8,6 +9,8 @@ import math
 import random
 import shutil
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import StringIO
@@ -81,6 +84,48 @@ INPUT_DIODE_PSEUDO_RESISTOR_RANGES: dict[str, dict[str, tuple[float, float]]] = 
         "DIN2_m": (1.0, 6.0),
     },
 }
+CIN2_SERIES_BOOST_TOPOLOGIES = (
+    "candidate_01_single_series_boost",
+    "candidate_02_dual_end_isolated_boost",
+    "candidate_03_split_staggered_boost",
+)
+CIN2_SERIES_BOOST_COMMON_PARAMS = (
+    "CIN1_m",
+    "CIN2_m",
+    "RBIN1_l",
+    "RBIN2_l",
+    "CE1_m",
+    "CE2_m",
+    "CP1_m",
+    "CP2_m",
+    "CP3_m",
+    "RBUF_l",
+    "RQ4FB_l",
+)
+CIN2_SERIES_BOOST_RANGES: dict[str, dict[str, tuple[float, float, bool]]] = {
+    "candidate_01_single_series_boost": {
+        "RZIN2_l": (90.0, 360.0, True),
+        "CIN2A_m": (1000000.0, 4000000.0, True),
+    },
+    "candidate_02_dual_end_isolated_boost": {
+        "CE1_m": (38000000.0, 80000000.0, False),
+        "CE2_m": (30000000.0, 85000000.0, False),
+        "RZIN2A_l": (120.0, 800.0, True),
+        "CIN2A_m": (900000.0, 6000000.0, True),
+        "RZIN2B_l": (120.0, 2400.0, True),
+    },
+    "candidate_03_split_staggered_boost": {
+        "CIN1_m": (1200000.0, 6000000.0, True),
+        "CIN2_m": (250000.0, 3000000.0, True),
+        "RBIN1_l": (1600.0, 12000.0, True),
+        "CE2_m": (30000000.0, 95000000.0, False),
+        "RBUF_l": (3500.0, 11500.0, False),
+        "RZIN2A_l": (100.0, 500.0, True),
+        "CIN2A_m": (700000.0, 4000000.0, True),
+        "RZIN2B_l": (300.0, 2400.0, True),
+        "CIN2B_m": (700000.0, 4500000.0, True),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -106,6 +151,30 @@ class FamilySpec:
     q1_input_node: str | None = None
     allow_q5_lf_servo: bool = False
     ce1_diode_topology: str | None = None
+
+
+@dataclass(frozen=True)
+class _TrialJob:
+    index: int
+    params: dict[str, Any]
+    study_trial: Any | None = None
+
+
+class _VerifierLaunchThrottle:
+    def __init__(self, min_interval_seconds: int):
+        self.min_interval_seconds = max(0, int(min_interval_seconds))
+        self._last_launch_monotonic: float | None = None
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        if self.min_interval_seconds <= 0:
+            return
+        with self._lock:
+            if self._last_launch_monotonic is not None:
+                remaining = self.min_interval_seconds - (time.monotonic() - self._last_launch_monotonic)
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._last_launch_monotonic = time.monotonic()
 
 
 CE1_DIODE_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
@@ -219,6 +288,38 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
             "CE2_m": ParamSpec("CE2", 20000000.0, 42000000.0, False, "capacitor"),
         },
     ),
+    "area-capdown-retune": FamilySpec(
+        slug="area-capdown-retune",
+        candidate_prefix="q5-bp-area-capdown",
+        hypothesis="Preserve the baseline Q-device topology while forcing CE1/CE2 into a 50-70% area-reduction range and retuning the output load.",
+        changed_blocks=("emitter_bypass_area_reduction", "expanded_output_load", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Smaller emitter bypass capacitors can raise the low cutoff or increase passband ripple even when gain and upper bandwidth remain valid.",
+        params={
+            "CE1_m": ParamSpec("CE1", 14000000.0, 22000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 18000000.0, 30000000.0, False, "capacitor"),
+            "RBUF_l": ParamSpec("RBUF", 5800.0, 8500.0, False, "resistor"),
+            "CP1_m": ParamSpec("CP1", 500.0, 1600.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 800.0, 2600.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 4000.0, 9000.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 6500.0, 11000.0, True, "resistor"),
+        },
+    ),
+    "area-ce2-first-retune": FamilySpec(
+        slug="area-ce2-first-retune",
+        candidate_prefix="q5-bp-area-ce2-first",
+        hypothesis="Cut the dominant CE2 area first, keep CE1 moderately bypassed, and compensate with RBUF/RQ4FB plus distributed CP2/CP3 tuning.",
+        changed_blocks=("ce2_area_reduction", "emitter_bypass_tuning", "expanded_output_load", "distributed_pole_zero_shaping", "device_accounting"),
+        risk="Aggressive CE2 reduction has the highest area leverage but can disturb the second-stage emitter degeneration and high-side shape.",
+        params={
+            "CE1_m": ParamSpec("CE1", 18000000.0, 28000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 14000000.0, 24000000.0, False, "capacitor"),
+            "RBUF_l": ParamSpec("RBUF", 5000.0, 9000.0, False, "resistor"),
+            "CP1_m": ParamSpec("CP1", 600.0, 1800.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 900.0, 3000.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 5000.0, 12000.0, True, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 6500.0, 14000.0, True, "resistor"),
+        },
+    ),
     "input-highpass": FamilySpec(
         slug="input-highpass",
         candidate_prefix="q5-bp-input-highpass",
@@ -288,6 +389,9 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
             "trial_0146_input_coupling_highpass",
             "input_highpass_diode_pseudoresistor",
             "cin1_cin2_area_reduction",
+            "q5_output_active_sink",
+            "distributed_pole_zero_shaping",
+            "emitter_bypass_tuning",
             "device_accounting",
         ),
         risk="Diode leakage paths can preserve B1/B2 DC return with much smaller CIN1/CIN2, but leakage strength or polarity can shift the operating point or move the low cutoff.",
@@ -298,6 +402,48 @@ FAMILY_SPECS: dict[str, FamilySpec] = {
             "CIN2_m": ParamSpec("CIN2", 15000.0, 200000.0, True, "capacitor", True),
             "DIN1_m": ParamSpec("DIN1", 1.0, 8.0, True, "scalar"),
             "DIN2_m": ParamSpec("DIN2", 1.0, 8.0, True, "scalar"),
+            "RBUF_l": ParamSpec("RBUF", 4500.0, 8500.0, False, "resistor"),
+            "CP1_m": ParamSpec("CP1", 900.0, 3600.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 800.0, 2200.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 6500.0, 12000.0, True, "capacitor"),
+            "CE1_m": ParamSpec("CE1", 52000000.0, 72000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 42000000.0, 90000000.0, False, "capacitor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 11000.0, 32000.0, True, "resistor"),
+        },
+    ),
+    "cin2-series-boost-topology": FamilySpec(
+        slug="cin2-series-boost-topology",
+        candidate_prefix="q5-bp-cin2-series-boost",
+        hypothesis="Sweep the README topology_candidates series-damped CIN2 boost branches on top of the accepted trial_0146 core.",
+        changed_blocks=(
+            "trial_0146_input_coupling_highpass",
+            "series_damped_cin2_boost",
+            "input_coupling_retune",
+            "emitter_bypass_tuning",
+            "distributed_pole_zero_shaping",
+            "expanded_output_load",
+            "q4_feedback_strength",
+            "device_accounting",
+        ),
+        risk="Additional CIN2 boost paths can improve the low cutoff, but excessive capacitance or weak damping can push the upper cutoff below 20 kHz; joint input, bypass, output, and feedback retuning is needed to recover high-side bandwidth.",
+        params={
+            "cin2_boost_topology": ParamSpec("cin2_boost_topology", kind="choice", choices=CIN2_SERIES_BOOST_TOPOLOGIES),
+            "CIN1_m": ParamSpec("CIN1", 1200000.0, 4500000.0, True, "capacitor"),
+            "CIN2_m": ParamSpec("CIN2", 250000.0, 2200000.0, True, "capacitor"),
+            "RBIN1_l": ParamSpec("RBIN1", 2500.0, 12000.0, True, "resistor"),
+            "RBIN2_l": ParamSpec("RBIN2", 450.0, 3500.0, True, "resistor"),
+            "CE1_m": ParamSpec("CE1", 45000000.0, 80000000.0, False, "capacitor"),
+            "CE2_m": ParamSpec("CE2", 38000000.0, 85000000.0, False, "capacitor"),
+            "CP1_m": ParamSpec("CP1", 700.0, 3200.0, True, "capacitor"),
+            "CP2_m": ParamSpec("CP2", 700.0, 3200.0, True, "capacitor"),
+            "CP3_m": ParamSpec("CP3", 5000.0, 14000.0, True, "capacitor"),
+            "RBUF_l": ParamSpec("RBUF", 3500.0, 9500.0, False, "resistor"),
+            "RQ4FB_l": ParamSpec("RQ4FB", 8000.0, 48000.0, True, "resistor"),
+            "RZIN2_l": ParamSpec("RZIN2", 90.0, 360.0, True, "resistor", True),
+            "RZIN2A_l": ParamSpec("RZIN2A", 100.0, 800.0, True, "resistor", True),
+            "RZIN2B_l": ParamSpec("RZIN2B", 120.0, 1800.0, True, "resistor", True),
+            "CIN2A_m": ParamSpec("CIN2A", 900000.0, 6000000.0, True, "capacitor", True),
+            "CIN2B_m": ParamSpec("CIN2B", 1100000.0, 4500000.0, True, "capacitor", True),
         },
     ),
     "input-highpass-damped-miller": FamilySpec(
@@ -548,7 +694,7 @@ def write_candidate_artifacts(
         f"objective: {json.dumps(_json_safe(objective), sort_keys=True)}",
         "",
         _topology_note(spec),
-        "Performance is the Optuna objective. Best selection switches to minimum area_total_p once performance_nrmse_combined is at or below 0.75.",
+        "Performance is the Optuna objective and best selection uses lowest performance_nrmse_combined; area_total_p is only a tie-breaker.",
         "",
     ]
     (output_dir / "proposal.json").write_text(json.dumps(proposal, indent=2) + "\n", encoding="utf-8")
@@ -584,6 +730,7 @@ def run_sweep(args: argparse.Namespace) -> int:
     repo_root = args.repo_root.resolve()
     config = load_runner_config(args.config).model_dump(mode="json")
     spec = _family_spec(args.family)
+    cadence_workers = _cadence_worker_count(args)
     fixed_params = _fixed_params_from_args(spec, args)
     baseline_workspace, baseline_source = resolve_baseline_workspace(
         repo_root,
@@ -622,12 +769,22 @@ def run_sweep(args: argparse.Namespace) -> int:
         batch_results.clear()
 
     optuna = _load_optuna()
+    launch_throttle = _parallel_launch_throttle(config, cadence_workers)
     if optuna is None:
         rng = random.Random(args.seed)
-        for index in range(args.trials):
-            result = _run_trial(index, _random_params(active_spec, rng, fixed_params), args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
-            best = _pick_best(best, result)
-            record_and_maybe_adapt(result)
+        next_index = 0
+        while next_index < args.trials:
+            batch_jobs: list[_TrialJob] = []
+            while len(batch_jobs) < cadence_workers and next_index < args.trials:
+                batch_jobs.append(_TrialJob(next_index, _random_params(active_spec, rng, fixed_params)))
+                next_index += 1
+            for _job, result in _run_trial_jobs(
+                batch_jobs,
+                lambda job: _run_one_trial_job(job, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices, launch_throttle),
+                cadence_workers,
+            ):
+                best = _pick_best(best, result)
+                record_and_maybe_adapt(result)
     else:
         sampler = optuna.samplers.TPESampler(seed=args.seed)
         study = optuna.create_study(direction="minimize", study_name=args.study_name, sampler=sampler)
@@ -640,7 +797,27 @@ def run_sweep(args: argparse.Namespace) -> int:
             record_and_maybe_adapt(result)
             return _objective_value_for_study(result["objective"])
 
-        study.optimize(objective, n_trials=args.trials, timeout=args.timeout_seconds)
+        if cadence_workers == 1:
+            study.optimize(objective, n_trials=args.trials, timeout=args.timeout_seconds)
+        else:
+            deadline = _timeout_deadline(args.timeout_seconds)
+            launched = 0
+            while launched < args.trials and not _timeout_reached(deadline):
+                batch_jobs: list[_TrialJob] = []
+                while len(batch_jobs) < cadence_workers and launched < args.trials and not _timeout_reached(deadline):
+                    trial = study.ask()
+                    batch_jobs.append(_TrialJob(trial.number, _suggest_params(active_spec, trial, fixed_params), trial))
+                    launched += 1
+                if not batch_jobs:
+                    break
+                for job, result in _run_trial_jobs(
+                    batch_jobs,
+                    lambda item: _run_one_trial_job(item, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices, launch_throttle),
+                    cadence_workers,
+                ):
+                    study.tell(job.study_trial, _objective_value_for_study(result["objective"]))
+                    best = _pick_best(best, result)
+                    record_and_maybe_adapt(result)
 
     if best is not None:
         (sweep_root / "best_trial_summary.json").write_text(json.dumps(_json_safe(best), indent=2) + "\n", encoding="utf-8")
@@ -652,13 +829,84 @@ def run_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cadence_worker_count(args: argparse.Namespace) -> int:
+    count = int(getattr(args, "cadence_workers", 1))
+    if count <= 0:
+        raise ValueError("--cadence-workers must be positive")
+    return count
+
+
+def _parallel_launch_throttle(config: dict[str, Any], cadence_workers: int) -> _VerifierLaunchThrottle | None:
+    if cadence_workers <= 1:
+        return None
+    verifier_config = config.get("verifier")
+    if not isinstance(verifier_config, dict):
+        return None
+    return _VerifierLaunchThrottle(int(verifier_config.get("min_interval_seconds", 0)))
+
+
+def _run_one_trial_job(
+    job: _TrialJob,
+    args: argparse.Namespace,
+    repo_root: Path,
+    config: dict[str, Any],
+    sweep_root: Path,
+    baseline_netlist: str,
+    baseline_devices: str,
+    launch_throttle: _VerifierLaunchThrottle | None,
+) -> dict[str, Any]:
+    if launch_throttle is None:
+        return _run_trial(job.index, job.params, args, repo_root, config, sweep_root, baseline_netlist, baseline_devices)
+    return _run_trial(
+        job.index,
+        job.params,
+        args,
+        repo_root,
+        config,
+        sweep_root,
+        baseline_netlist,
+        baseline_devices,
+        launch_throttle,
+    )
+
+
+def _run_trial_jobs(jobs: list[_TrialJob], runner: Any, cadence_workers: int) -> list[tuple[_TrialJob, dict[str, Any]]]:
+    if cadence_workers <= 1 or len(jobs) <= 1:
+        return [(job, runner(job)) for job in jobs]
+
+    results: list[tuple[_TrialJob, dict[str, Any]]] = []
+    with ThreadPoolExecutor(max_workers=cadence_workers) as executor:
+        futures = {executor.submit(runner, job): job for job in jobs}
+        for future in as_completed(futures):
+            job = futures[future]
+            results.append((job, future.result()))
+    results.sort(key=lambda item: item[0].index)
+    return results
+
+
+def _timeout_deadline(timeout_seconds: int | None) -> float | None:
+    if timeout_seconds is None:
+        return None
+    return time.monotonic() + max(0, int(timeout_seconds))
+
+
+def _timeout_reached(deadline: float | None) -> bool:
+    return deadline is not None and time.monotonic() >= deadline
+
+
 def _fixed_params_from_args(spec: FamilySpec, args: argparse.Namespace) -> dict[str, Any]:
+    fixed: dict[str, Any] = {}
     input_pr_topology = getattr(args, "input_pr_topology", None)
-    if input_pr_topology is None:
-        return {}
-    if spec.slug != "dual-input-highpass-output-sink":
-        raise ValueError("--input-pr-topology is only valid for dual-input-highpass-output-sink")
-    return {"input_pr_topology": input_pr_topology}
+    if input_pr_topology is not None:
+        if spec.slug != "dual-input-highpass-output-sink":
+            raise ValueError("--input-pr-topology is only valid for dual-input-highpass-output-sink")
+        fixed["input_pr_topology"] = input_pr_topology
+    cin2_boost_topology = getattr(args, "cin2_boost_topology", None)
+    if cin2_boost_topology is not None:
+        if spec.slug != "cin2-series-boost-topology":
+            raise ValueError("--cin2-boost-topology is only valid for cin2-series-boost-topology")
+        fixed["cin2_boost_topology"] = cin2_boost_topology
+    return fixed
 
 
 def _run_trial(
@@ -670,10 +918,11 @@ def _run_trial(
     sweep_root: Path,
     baseline_netlist: str,
     baseline_devices: str,
+    launch_throttle: _VerifierLaunchThrottle | None = None,
 ) -> dict[str, Any]:
     spec = _family_spec(args.family)
     trial_no = index + 1
-    candidate_id = f"{spec.candidate_prefix}-trial-{trial_no:04d}"
+    candidate_id = _candidate_id(spec, sweep_root.name, trial_no)
     trial_dir = sweep_root / f"trial_{trial_no:04d}"
     workspace_dir = trial_dir / "workspace"
     trial_dir.mkdir(parents=True, exist_ok=True)
@@ -706,6 +955,8 @@ def _run_trial(
     verification_status = "not_run"
     metrics: dict[str, Any] = {}
     if review.get("passed") and not args.no_verify:
+        if launch_throttle is not None:
+            launch_throttle.wait()
         verification_status, metrics = _verify_trial(config, repo_root, workspace_dir, trial_dir, candidate_id)
     elif args.no_verify:
         verification_status = "skipped"
@@ -737,6 +988,26 @@ def _run_trial(
     }
     (trial_dir / "trial_summary.json").write_text(json.dumps(_json_safe(result), indent=2) + "\n", encoding="utf-8")
     return result
+
+
+def _candidate_id(spec: FamilySpec, timestamp: str, trial_no: int) -> str:
+    safe_timestamp = _candidate_id_part(timestamp)
+    if safe_timestamp:
+        return f"{spec.candidate_prefix}-{safe_timestamp}-trial-{trial_no:04d}"
+    return f"{spec.candidate_prefix}-trial-{trial_no:04d}"
+
+
+def _candidate_id_part(value: str) -> str:
+    output = []
+    previous_dash = False
+    for char in value.strip():
+        if char.isalnum() or char in {"_", "-"}:
+            output.append(char)
+            previous_dash = False
+        elif not previous_dash:
+            output.append("-")
+            previous_dash = True
+    return "".join(output).strip("-")
 
 
 def _build_bandpass_netlist(baseline_netlist: str, spec: FamilySpec, params: dict[str, float]) -> str:
@@ -817,6 +1088,8 @@ def _support_insertions(family: str, params: dict[str, float]) -> list[tuple[str
                 _dual_input_diode_support_lines(params),
             )
         )
+    if family == "cin2-series-boost-topology":
+        insertions.append(("CIN2", _cin2_series_boost_support_lines(params)))
     if family == "q1-cap-feedback-highpass":
         insertions.extend(_input_diode_support_insertions(params))
     if family == "input-highpass-damped-miller":
@@ -883,6 +1156,29 @@ def _support_insertions(family: str, params: dict[str, float]) -> list[tuple[str
     return insertions
 
 
+def _cin2_series_boost_support_lines(params: dict[str, Any]) -> list[str]:
+    topology = _cin2_boost_topology(params)
+    if topology == "candidate_01_single_series_boost":
+        return [
+            f"RZIN2 B1 ZIN2A GND {RES_MODEL} l={_format_um(params['RZIN2_l'])} w=5.73u m=1",
+            f"CIN2A ZIN2A B2 GND {CAP_MODEL} m={_format_multiplier(params['CIN2A_m'])}",
+        ]
+    if topology == "candidate_02_dual_end_isolated_boost":
+        return [
+            f"RZIN2A B1 ZIN2A GND {RES_MODEL} l={_format_um(params['RZIN2A_l'])} w=5.73u m=1",
+            f"CIN2A ZIN2A ZIN2B GND {CAP_MODEL} m={_format_multiplier(params['CIN2A_m'])}",
+            f"RZIN2B ZIN2B B2 GND {RES_MODEL} l={_format_um(params['RZIN2B_l'])} w=5.73u m=1",
+        ]
+    if topology == "candidate_03_split_staggered_boost":
+        return [
+            f"RZIN2A B1 ZIN2A GND {RES_MODEL} l={_format_um(params['RZIN2A_l'])} w=5.73u m=1",
+            f"CIN2A ZIN2A B2 GND {CAP_MODEL} m={_format_multiplier(params['CIN2A_m'])}",
+            f"RZIN2B B1 ZIN2B GND {RES_MODEL} l={_format_um(params['RZIN2B_l'])} w=5.73u m=1",
+            f"CIN2B ZIN2B B2 GND {CAP_MODEL} m={_format_multiplier(params['CIN2B_m'])}",
+        ]
+    raise ValueError(f"unknown CIN2 boost topology: {topology}")
+
+
 def _input_diode_support_insertions(params: dict[str, Any]) -> list[tuple[str, list[str]]]:
     topology = _input_pr_topology(params)
     return [
@@ -906,6 +1202,17 @@ def _input_pr_topology(params: dict[str, Any]) -> str:
     if topology not in INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES:
         raise ValueError(f"unknown input diode pseudo-resistor topology: {topology}")
     return topology
+
+
+def _cin2_boost_topology(params: dict[str, Any]) -> str:
+    topology = str(params.get("cin2_boost_topology", ""))
+    if topology not in CIN2_SERIES_BOOST_TOPOLOGIES:
+        raise ValueError(f"unknown CIN2 boost topology: {topology}")
+    return topology
+
+
+def _cin2_boost_param_names(topology: str) -> tuple[str, ...]:
+    return tuple(CIN2_SERIES_BOOST_RANGES[topology])
 
 
 def _input_stage_diode_lines(stage: str, node: str, topology: str, multiplier: float) -> list[str]:
@@ -1119,6 +1426,8 @@ def _topology_note(spec: FamilySpec) -> str:
         return "Q5 is rewired into a BQ4 LF servo and NDRV/N1/VOUT are shaped with series-damped compensation branches."
     if _q1_rewire_node(spec) is not None:
         return "Q1 input is rewired through B1/CIN/RBIN for this high-pass family."
+    if spec.slug == "cin2-series-boost-topology":
+        return "Q1/Q2/Q3/Q4/Q5 topology lines are preserved while a selected series-damped CIN2 boost branch is added."
     if spec.allow_q5_lf_servo:
         return "Q5 is rewired from the output sink into a weak BQ4 low-frequency servo."
     return "Q1/Q2/Q3/Q4/Q5 topology lines are preserved."
@@ -1177,9 +1486,8 @@ def _build_bandpass_devices(baseline_devices: str, spec: FamilySpec, params: dic
     if missing:
         raise ValueError("devices.csv missing swept devices: " + ", ".join(missing))
 
-    for name, param in spec.params.items():
-        if not param.support:
-            continue
+    for name in _support_param_names_for_devices(spec, params):
+        param = spec.params[name]
         if param.kind == "resistor":
             rows.append(_resistor_row(fieldnames, param.device, params[name]))
         elif param.kind == "capacitor":
@@ -1198,6 +1506,12 @@ def _build_bandpass_devices(baseline_devices: str, spec: FamilySpec, params: dic
     writer.writeheader()
     writer.writerows(rows)
     return output.getvalue()
+
+
+def _support_param_names_for_devices(spec: FamilySpec, params: dict[str, Any]) -> tuple[str, ...]:
+    if spec.slug == "cin2-series-boost-topology":
+        return tuple(name for name in _cin2_boost_param_names(_cin2_boost_topology(params)) if spec.params[name].support)
+    return tuple(name for name, param in spec.params.items() if param.support)
 
 
 def _validate_q_topology_policy(spec: FamilySpec, baseline: dict[str, str], generated: dict[str, str]) -> None:
@@ -1360,7 +1674,7 @@ def _q_device_lines(netlist: str) -> dict[str, str]:
 
 
 def _validate_params(spec: FamilySpec, params: dict[str, float]) -> None:
-    expected = set(spec.params)
+    expected = _required_param_names(spec, params)
     missing = sorted(expected - set(params))
     if missing:
         raise ValueError("missing sweep params: " + ", ".join(missing))
@@ -1376,6 +1690,13 @@ def _validate_params(spec: FamilySpec, params: dict[str, float]) -> None:
         parsed = _finite_float(value)
         if parsed is None or parsed <= 0.0:
             raise ValueError(f"{name} must be positive finite")
+
+
+def _required_param_names(spec: FamilySpec, params: dict[str, Any]) -> set[str]:
+    if spec.slug == "cin2-series-boost-topology" and "cin2_boost_topology" in params:
+        topology = _cin2_boost_topology(params)
+        return {"cin2_boost_topology", *CIN2_SERIES_BOOST_COMMON_PARAMS, *_cin2_boost_param_names(topology)}
+    return set(spec.params)
 
 
 def _family_spec(family: str) -> FamilySpec:
@@ -1575,6 +1896,8 @@ def _suggest_params(spec: FamilySpec, trial: Any, fixed_params: dict[str, Any] |
         if name in fixed_params:
             params[name] = fixed_params[name]
             continue
+        if not _param_applies_to_current_choice(spec, name, params):
+            continue
         param = _effective_param_spec(spec, name, params, param)
         if param.kind == "choice":
             params[name] = trial.suggest_categorical(name, list(param.choices))
@@ -1589,6 +1912,8 @@ def _random_params(spec: FamilySpec, rng: random.Random, fixed_params: dict[str,
     for name, param in spec.params.items():
         if name in fixed_params:
             params[name] = fixed_params[name]
+            continue
+        if not _param_applies_to_current_choice(spec, name, params):
             continue
         param = _effective_param_spec(spec, name, params, param)
         if param.kind == "choice":
@@ -1606,6 +1931,9 @@ def _effective_param_spec(
     params: dict[str, Any],
     default: ParamSpec,
 ) -> ParamSpec:
+    if spec.slug == "cin2-series-boost-topology" and name in CIN2_SERIES_BOOST_RANGES.get(str(params.get("cin2_boost_topology")), {}):
+        low, high, log_scale = CIN2_SERIES_BOOST_RANGES[_cin2_boost_topology(params)][name]
+        return ParamSpec(default.device, low, high, log_scale, default.kind, default.support, default.choices)
     if spec.slug != "dual-input-highpass-output-sink" or name not in {"CIN1_m", "CIN2_m", "DIN1_m", "DIN2_m"}:
         return default
     original = FAMILY_SPECS[spec.slug].params[name]
@@ -1614,6 +1942,16 @@ def _effective_param_spec(
     topology = _input_pr_topology(params)
     low, high = INPUT_DIODE_PSEUDO_RESISTOR_RANGES[topology][name]
     return ParamSpec(default.device, low, high, default.log_scale, default.kind, default.support, default.choices)
+
+
+def _param_applies_to_current_choice(spec: FamilySpec, name: str, params: dict[str, Any]) -> bool:
+    if spec.slug != "cin2-series-boost-topology" or name == "cin2_boost_topology":
+        return True
+    if name in CIN2_SERIES_BOOST_COMMON_PARAMS:
+        return True
+    if "cin2_boost_topology" not in params:
+        return False
+    return name in _cin2_boost_param_names(_cin2_boost_topology(params))
 
 
 def _metric(metrics: dict[str, Any], path: tuple[str, ...]) -> float | None:
@@ -1667,10 +2005,8 @@ def _best_rank(result: dict[str, Any]) -> tuple[int, float, float]:
         performance = _finite_float(objective.get("objective"))
     area = _finite_float(objective.get("area_total_p"))
 
-    if performance is not None and performance <= MAX_AREA_OBJECTIVE_PERFORMANCE_NRMSE and area is not None:
-        return (0, area, performance)
     if performance is not None:
-        return (1, performance, area if area is not None else math.inf)
+        return (0, performance, area if area is not None else math.inf)
     return (2, math.inf, math.inf)
 
 
@@ -1714,10 +2050,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--study-name", default="q5-bandpass")
     parser.add_argument("--timestamp")
     parser.add_argument("--seed", type=int, default=23)
+    parser.add_argument("--cadence-workers", type=int, default=1, help="Number of Cadence verifier trials to run concurrently.")
     parser.add_argument(
         "--input-pr-topology",
         choices=INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES,
         help="Limit dual-input-highpass-output-sink to one input diode pseudo-resistor topology.",
+    )
+    parser.add_argument(
+        "--cin2-boost-topology",
+        choices=CIN2_SERIES_BOOST_TOPOLOGIES,
+        help="Limit cin2-series-boost-topology to one README topology candidate.",
     )
     parser.add_argument("--no-verify", action="store_true", help="Generate trial artifacts and review them without running the verifier.")
     return parser

@@ -1,0 +1,38 @@
+simulator lang=spectre
+
+subckt dummy_neural_amp_amptest_v2p3_impl GND VDD VIN VOUT VREF
+RVREF VIN VREF GND res_high_po_5p73 l=39409.1u w=5.73u m=1
+CIN1 VIN B1 GND cap_vpp_11p5x11p7_m1m4_noshield m=2486389
+RBIN1 B1 VREF GND res_high_po_5p73 l=5118.08u w=5.73u m=1
+CIN2 B1 B2 GND cap_vpp_11p5x11p7_m1m4_noshield m=726723
+RBIN2 B2 B2R GND res_high_po_5p73 l=1000.65u w=5.73u m=1
+RBIN2X B2R VREF GND res_high_po_5p73 l=7000u w=5.73u m=1
+
+RC1 VDD N1 GND res_high_po_5p73 l=642.248u w=5.73u m=1
+Q1 N1 B2 E1 GND npn_05v5_W1p00L2p00
+RE1U E1 E1B GND res_high_po_5p73 l=23.6296u w=5.73u m=1
+RE1B E1B GND GND res_high_po_5p73 l=806.725u w=5.73u m=1
+CE1 E1B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=62929414
+
+RC2 VDD NDRV GND res_high_po_5p73 l=471.255u w=5.73u m=1
+RQ4U VDD BQ4 GND res_high_po_5p73 l=675.815u w=5.73u m=1
+RQ4R BQ4 VREF GND res_high_po_5p73 l=1255.49u w=5.73u m=1
+RQ4FB VOUT BQ4 GND res_high_po_5p73 l=15719.5u w=5.73u m=1
+REQ4 VDD Q4E GND res_high_po_5p73 l=118.244u w=5.73u m=1
+Q4 NDRV BQ4 Q4E VDD pnp_05v5_W3p40L3p40
+Q2 NDRV N1 E2 GND npn_05v5_W1p00L2p00
+RE2U E2 E2B GND res_high_po_5p73 l=33.4817u w=5.73u m=1
+RE2B E2B GND GND res_high_po_5p73 l=639.455u w=5.73u m=1
+CE2 E2B GND GND cap_vpp_11p5x11p7_m1m4_noshield m=64133103
+
+Q3 VDD NDRV VOUT GND npn_05v5_W1p00L1p00
+RBUF VOUT GND GND res_high_po_5p73 l=7007.38u w=5.73u m=1
+RQ5U VREF BQ5 GND res_high_po_5p73 l=5588.01u w=5.73u m=1
+RQ5B BQ5 GND GND res_high_po_5p73 l=1191.29u w=5.73u m=1
+REQ5 EQ5 GND GND res_high_po_5p73 l=3754.37u w=5.73u m=1
+Q5 VOUT BQ5 EQ5 GND npn_05v5_W1p00L1p00
+
+CP1 N1 GND GND cap_vpp_11p5x11p7_m1m4_noshield m=1589
+CP2 NDRV GND GND cap_vpp_11p5x11p7_m1m4_noshield m=1501
+CP3 VOUT GND GND cap_vpp_11p5x11p7_m1m4_noshield m=10608
+ends dummy_neural_amp_amptest_v2p3_impl

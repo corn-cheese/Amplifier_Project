@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import math
 import subprocess
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypedDict
@@ -1108,27 +1111,15 @@ def verify_queue_node(state: GraphState) -> GraphState:
     if not isinstance(verifier_config, dict):
         return _record_error(next_state, "verify_queue", "missing verifier config")
 
-    verifier = Verifier(
-        command=str(verifier_config["command"]),
-        timeout_seconds=int(verifier_config["timeout_seconds"]),
-        min_interval_seconds=int(verifier_config["min_interval_seconds"]),
-        required_outputs=list(verifier_config["required_outputs"]),
+    cadence_workers = _verifier_cadence_workers(verifier_config)
+    verification_results = _run_verifier_queue(
+        candidate_ids,
+        verifier_config,
+        _repo_root(next_state),
+        paths,
+        cadence_workers,
+        errors,
     )
-    verification_results = []
-    for candidate_id in candidate_ids:
-        try:
-            result = verifier.run(
-                candidate_id,
-                _repo_root(next_state),
-                paths.workspace_dir(candidate_id),
-                paths.candidate_dir(candidate_id),
-            )
-            verification_results.append(result.model_dump(mode="json"))
-        except (OSError, ValueError, ValidationError) as exc:
-            message = f"verifier_exception: {exc}"
-            errors.append(f"verify_queue: verifier failed for {candidate_id}: {exc}")
-            result = _write_verification_error_result(candidate_id, paths.candidate_dir(candidate_id), message)
-            verification_results.append(result.model_dump(mode="json"))
     result_state = {
         **next_state,
         "verification_queue": candidate_ids,
@@ -1139,6 +1130,101 @@ def verify_queue_node(state: GraphState) -> GraphState:
         result_state["top_decision"] = {}
         result_state["route"] = "next_batch"
     return result_state
+
+
+class _QueueVerifierLaunchThrottle:
+    def __init__(self, min_interval_seconds: int):
+        self.min_interval_seconds = max(0, int(min_interval_seconds))
+        self._last_launch_monotonic: float | None = None
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        if self.min_interval_seconds <= 0:
+            return
+        with self._lock:
+            if self._last_launch_monotonic is not None:
+                remaining = self.min_interval_seconds - (time.monotonic() - self._last_launch_monotonic)
+                if remaining > 0:
+                    time.sleep(remaining)
+            self._last_launch_monotonic = time.monotonic()
+
+
+def _verifier_cadence_workers(verifier_config: dict[str, Any]) -> int:
+    workers = int(verifier_config.get("cadence_workers", 1))
+    if workers <= 0:
+        raise ValueError("verifier.cadence_workers must be positive")
+    return workers
+
+
+def _run_verifier_queue(
+    candidate_ids: list[str],
+    verifier_config: dict[str, Any],
+    repo_root: Path,
+    paths: ArtifactPaths,
+    cadence_workers: int,
+    errors: list[str],
+) -> list[dict[str, Any]]:
+    if cadence_workers <= 1 or len(candidate_ids) <= 1:
+        verifier = Verifier(
+            command=str(verifier_config["command"]),
+            timeout_seconds=int(verifier_config["timeout_seconds"]),
+            min_interval_seconds=int(verifier_config["min_interval_seconds"]),
+            required_outputs=list(verifier_config["required_outputs"]),
+        )
+        return [
+            _run_verifier_candidate(
+                verifier,
+                candidate_id,
+                repo_root,
+                paths.workspace_dir(candidate_id),
+                paths.candidate_dir(candidate_id),
+                errors,
+            ).model_dump(mode="json")
+            for candidate_id in candidate_ids
+        ]
+
+    throttle = _QueueVerifierLaunchThrottle(int(verifier_config["min_interval_seconds"]))
+
+    def run(candidate_id: str) -> VerificationResult:
+        verifier = Verifier(
+            command=str(verifier_config["command"]),
+            timeout_seconds=int(verifier_config["timeout_seconds"]),
+            min_interval_seconds=0,
+            required_outputs=list(verifier_config["required_outputs"]),
+        )
+        throttle.wait()
+        return _run_verifier_candidate(
+            verifier,
+            candidate_id,
+            repo_root,
+            paths.workspace_dir(candidate_id),
+            paths.candidate_dir(candidate_id),
+            errors,
+        )
+
+    results_by_candidate: dict[str, dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=cadence_workers) as executor:
+        futures = {executor.submit(run, candidate_id): candidate_id for candidate_id in candidate_ids}
+        for future in as_completed(futures):
+            candidate_id = futures[future]
+            results_by_candidate[candidate_id] = future.result().model_dump(mode="json")
+    return [results_by_candidate[candidate_id] for candidate_id in candidate_ids]
+
+
+def _run_verifier_candidate(
+    verifier: Verifier,
+    candidate_id: str,
+    repo_root: Path,
+    workspace_dir: Path,
+    candidate_dir: Path,
+    errors: list[str],
+) -> VerificationResult:
+    try:
+        return verifier.run(candidate_id, repo_root, workspace_dir, candidate_dir)
+    except (OSError, ValueError, ValidationError) as exc:
+        message = f"verifier_exception: {exc}"
+        errors.append(f"verify_queue: verifier failed for {candidate_id}: {exc}")
+        return _write_verification_error_result(candidate_id, candidate_dir, message)
 
 
 def _verification_error_payload(candidate_id: str, candidate_dir: Path, message: str) -> dict[str, Any]:

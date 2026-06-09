@@ -1,17 +1,23 @@
 import json
 import math
+import threading
+import time
 import uuid
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
+import tools.optuna_q5_bandpass_sweep as sweep_mod
 from tools.optuna_q5_bandpass_sweep import (
     FAMILY_SPECS,
     INPUT_DIODE_PSEUDO_RESISTOR_TOPOLOGIES,
     build_q5_bandpass_artifacts,
+    build_parser,
     evaluate_raw_trial_objective,
     _objective_value_for_study,
     _run_trial,
+    run_sweep,
     resolve_baseline_workspace,
 )
 
@@ -512,14 +518,133 @@ class TestOptunaQ5BandpassSweep(unittest.TestCase):
         self.assertIn("--family q1-cap-feedback-highpass", batch)
         self.assertIn('--trials %TRIALS%', batch)
         self.assertIn('--timestamp %TIMESTAMP%', batch)
+        self.assertIn('--cadence-workers %CADENCE_WORKERS%', batch)
         self.assertIn('set "TRIALS=2000"', batch)
         self.assertIn('set "TIMESTAMP=q5-q1-cap-feedback-highpass-rerange2-2000"', batch)
+        self.assertIn('set "CADENCE_WORKERS=%~3"', batch)
+        self.assertIn('set "CADENCE_WORKERS=1"', batch)
         self.assertNotIn("--family active-lf-servo-bq4", batch)
         self.assertNotIn("--family dual-input-highpass-output-sink", batch)
         self.assertNotIn("--family input-highpass-output-sink", batch)
         self.assertNotIn("--family input-highpass-damped-miller", batch)
         self.assertNotIn("--family lf-servo-bq4", batch)
         self.assertNotIn("--seed", batch)
+
+    def test_area_capdown_tight_retune_uses_much_smaller_ce_ranges(self):
+        spec = FAMILY_SPECS["area-capdown-tight-retune"]
+
+        self.assertEqual(set(spec.params), {
+            "CE1_m",
+            "CE2_m",
+            "CP1_m",
+            "CP2_m",
+            "CP3_m",
+            "RBUF_l",
+            "RQ4FB_l",
+        })
+        self.assertEqual(spec.params["CE1_m"].low, 5000000.0)
+        self.assertEqual(spec.params["CE1_m"].high, 16000000.0)
+        self.assertEqual(spec.params["CE2_m"].low, 6000000.0)
+        self.assertEqual(spec.params["CE2_m"].high, 18000000.0)
+
+    def test_area_capdown_tight_batch_launcher_runs_tight_retune_family(self):
+        batch = Path("run_q5_area_capdown_tight_sweep.bat").read_text(encoding="utf-8")
+
+        self.assertIn("python -m tools.optuna_q5_bandpass_sweep", batch)
+        self.assertIn("--family area-capdown-tight-retune", batch)
+        self.assertIn('--trials %TRIALS%', batch)
+        self.assertIn('--timestamp %TIMESTAMP%', batch)
+        self.assertIn('--baseline-workspace "%BASELINE_WORKSPACE%"', batch)
+        self.assertIn('--cadence-workers %CADENCE_WORKERS%', batch)
+        self.assertIn('set "TRIALS=300"', batch)
+        self.assertIn('set "TIMESTAMP=area-capdown-tight-300"', batch)
+        self.assertIn('set "CADENCE_WORKERS=%~4"', batch)
+        self.assertIn('set "CADENCE_WORKERS=1"', batch)
+
+    def test_parser_accepts_configurable_cadence_workers(self):
+        parsed = build_parser().parse_args(["--family", "area-capdown-tight-retune", "--cadence-workers", "3"])
+
+        self.assertEqual(parsed.cadence_workers, 3)
+
+    def test_candidate_id_includes_sweep_timestamp_to_avoid_parallel_remote_collisions(self):
+        spec = FAMILY_SPECS["area-capdown-tight-retune"]
+
+        self.assertEqual(
+            sweep_mod._candidate_id(spec, "area capdown tight/300", 1),
+            "q5-bp-area-capdown-tight-area-capdown-tight-300-trial-0001",
+        )
+
+    def test_random_sweep_uses_configured_cadence_workers_for_trial_dispatch(self):
+        repo = _scratch("q5_bandpass_parallel_workers")
+        baseline = _workspace(repo / "baseline", BASE_NETLIST, BASE_DEVICES)
+        config = {
+            "artifact_root": "automation_artifacts",
+            "amptest_config": "amptest_v2p3/COREONLY/config.json",
+            "dut_netlist": "amptest_v2p3/COREONLY/dummy_neural_amp.scs",
+            "devices_csv": "amptest_v2p3/COREONLY/devices.csv",
+        }
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+
+        def fake_run_trial(index, params, args, repo_root, config_dict, sweep_root, baseline_netlist, baseline_devices):
+            nonlocal active, max_active
+            trial_no = index + 1
+            trial_dir = sweep_root / f"trial_{trial_no:04d}"
+            trial_dir.mkdir(parents=True, exist_ok=True)
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            for name in ("proposal.json", "patch.diff", "notes.md"):
+                (trial_dir / name).write_text(name, encoding="utf-8")
+            return {
+                "trial_no": trial_no,
+                "candidate_id": f"parallel-trial-{trial_no:04d}",
+                "trial_dir": str(trial_dir),
+                "params": params,
+                "review": {"passed": True},
+                "verification_status": "passed",
+                "metrics": {},
+                "objective": {"objective": float(trial_no), "rejected": False},
+            }
+
+        args = SimpleNamespace(
+            repo_root=repo,
+            config=repo / "runner_config.json",
+            family="area-capdown-tight-retune",
+            baseline_workspace=baseline,
+            baseline_summary=None,
+            trials=2,
+            timeout_seconds=None,
+            study_name="parallel-workers",
+            timestamp="parallel-workers",
+            seed=23,
+            no_verify=True,
+            cadence_workers=2,
+        )
+
+        with (
+            mock.patch.object(sweep_mod, "load_runner_config", return_value=SimpleNamespace(model_dump=lambda mode: config)),
+            mock.patch.object(sweep_mod, "_load_optuna", return_value=None),
+            mock.patch.object(sweep_mod, "_run_trial", side_effect=fake_run_trial),
+        ):
+            self.assertEqual(run_sweep(args), 0)
+
+        self.assertEqual(max_active, 2)
+        summary = json.loads(
+            (
+                repo
+                / "automation_artifacts"
+                / "sweeps"
+                / "q5-bandpass-area-capdown-tight-retune"
+                / "parallel-workers"
+                / "best_trial_summary.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(summary["trial_no"], 1)
 
     def test_dual_input_family_uses_recentered_boundary_relief_ranges(self):
         spec = FAMILY_SPECS["dual-input-highpass-output-sink"]
