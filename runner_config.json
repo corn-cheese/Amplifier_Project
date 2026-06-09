@@ -21,7 +21,7 @@
   },
   "verifier": {
     "command": "python -m langgraph_runner.ssh_verifier --ssh-target me59@163.180.160.78 --remote-root /home/me59/amplifier_runner --identity-file \"%USERPROFILE%\\.ssh\\eda_langgraph\" --candidate-id {candidate_id} --repo-root \"{repo_root}\" --local-candidate-dir \"{local_candidate_dir}\" --amptest-dir amptest_v2p3/COREONLY",
-    "timeout_seconds": 1800,
+    "timeout_seconds": 60,
     "min_interval_seconds": 0,
     "cadence_workers": 1,
     "required_outputs": [

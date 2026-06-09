@@ -1,0 +1,190 @@
+{
+  "id": "T28",
+  "slug": "t28-npn-capacitance-multiplier-emitter-bypass",
+  "title": "NPN Capacitance-Multiplier Emitter Bypass",
+  "source_idea": 28,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t26-t30-targeted/runs",
+  "candidate_prefix": "q5-bp-t28",
+  "hypothesis": "Use Q6/Q7 diode-connected NPN capacitance-multiplier helpers so CE1/CE2 can be cut to 1M-3M while preserving low-corner bypass behavior.",
+  "risk": "The added NPN helpers can create DC drift or bias collapse; this candidate is intentionally run last after lower-risk candidates.",
+  "changed_blocks": [
+    "trial_0146_baseline",
+    "emitter_bypass_area_reduction",
+    "npn_capacitance_multiplier",
+    "support_bjt_device_accounting",
+    "bias_stability_retune"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CE1_m": {
+      "device": "CE1",
+      "kind": "capacitor",
+      "low": 1000000.0,
+      "high": 3000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CE2_m": {
+      "device": "CE2",
+      "kind": "capacitor",
+      "low": 1000000.0,
+      "high": 3000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RCM1U_l": {
+      "device": "RCM1U",
+      "kind": "resistor",
+      "low": 20000.0,
+      "high": 120000.0,
+      "log_scale": true
+    },
+    "RCM1B_l": {
+      "device": "RCM1B",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CCM1_m": {
+      "device": "CCM1",
+      "kind": "capacitor",
+      "low": 200000.0,
+      "high": 1500000.0,
+      "log_scale": true
+    },
+    "RCM2U_l": {
+      "device": "RCM2U",
+      "kind": "resistor",
+      "low": 20000.0,
+      "high": 120000.0,
+      "log_scale": true
+    },
+    "RCM2B_l": {
+      "device": "RCM2B",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CCM2_m": {
+      "device": "CCM2",
+      "kind": "capacitor",
+      "low": 200000.0,
+      "high": 1500000.0,
+      "log_scale": true
+    },
+    "RQ4FB_l": {
+      "device": "RQ4FB",
+      "kind": "resistor",
+      "low": 12000.0,
+      "high": 50000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RBUF_l": {
+      "device": "RBUF",
+      "kind": "resistor",
+      "low": 5000.0,
+      "high": 9000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RCM1U",
+      "kind": "resistor",
+      "param": "RCM1U_l"
+    },
+    {
+      "name": "RCM1B",
+      "kind": "resistor",
+      "param": "RCM1B_l"
+    },
+    {
+      "name": "CCM1",
+      "kind": "capacitor",
+      "param": "CCM1_m"
+    },
+    {
+      "name": "Q6",
+      "kind": "npn",
+      "width": "1.00u",
+      "length": "1.00u"
+    },
+    {
+      "name": "RCM2U",
+      "kind": "resistor",
+      "param": "RCM2U_l"
+    },
+    {
+      "name": "RCM2B",
+      "kind": "resistor",
+      "param": "RCM2B_l"
+    },
+    {
+      "name": "CCM2",
+      "kind": "capacitor",
+      "param": "CCM2_m"
+    },
+    {
+      "name": "Q7",
+      "kind": "npn",
+      "width": "1.00u",
+      "length": "1.00u"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CE1",
+      "line": "CE1 E1B GND GND {CAP_MODEL} m={CE1_m}"
+    },
+    {
+      "device": "CE2",
+      "line": "CE2 E2B GND GND {CAP_MODEL} m={CE2_m}"
+    },
+    {
+      "device": "RQ4FB",
+      "line": "RQ4FB VOUT BQ4 GND {RES_MODEL} l={RQ4FB_l} w=5.73u m=1"
+    },
+    {
+      "device": "RBUF",
+      "line": "RBUF VOUT GND GND {RES_MODEL} l={RBUF_l} w=5.73u m=1"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CE1",
+      "lines": [
+        "RCM1U VREF NCM1 GND {RES_MODEL} l={RCM1U_l} w=5.73u m=1",
+        "RCM1B NCM1 E1B GND {RES_MODEL} l={RCM1B_l} w=5.73u m=1",
+        "CCM1 NCM1 GND GND {CAP_MODEL} m={CCM1_m}",
+        "Q6 NCM1 NCM1 E1B GND {NPN_Q5_MODEL}"
+      ]
+    },
+    {
+      "anchor": "CE2",
+      "lines": [
+        "RCM2U VREF NCM2 GND {RES_MODEL} l={RCM2U_l} w=5.73u m=1",
+        "RCM2B NCM2 E2B GND {RES_MODEL} l={RCM2B_l} w=5.73u m=1",
+        "CCM2 NCM2 GND GND {CAP_MODEL} m={CCM2_m}",
+        "Q7 NCM2 NCM2 E2B GND {NPN_Q5_MODEL}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 5 candidate in the requested order.",
+    "This spec requires support BJT accounting; Q6/Q7 are added as npn rows in devices.csv.",
+    "CE1/CE2 are forced into the aggressive 1M-3M range.",
+    "RQ4FB and RBUF remain sweep knobs to catch bias or output swing drift."
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "id": "T23",
+  "slug": "t23-t05-weak-bq4-hf-feedback",
+  "title": "T05 Weak BQ4 HF Feedback",
+  "source_idea": 23,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t21-t25-targeted/runs",
+  "candidate_prefix": "q5-bp-t23",
+  "hypothesis": "Combine the T05 input boost seed with a weak T07-style VOUT-to-BQ4 high-frequency feedback branch to improve 200 kHz attenuation without heavily loading VOUT.",
+  "risk": "The added BQ4 feedback pole-zero path can over-damp passband gain or disturb Q4 bias if RHFQ4 is too low or CHFQ4 too large.",
+  "changed_blocks": [
+    "t05_dual_end_isolated_slow_third_boost",
+    "weak_hf_feedback_into_bq4",
+    "baseline_near_cp_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CIN1_m": {
+      "device": "CIN1",
+      "kind": "capacitor",
+      "low": 1800000.0,
+      "high": 4000000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "CIN2_m": {
+      "device": "CIN2",
+      "kind": "capacitor",
+      "low": 2000000.0,
+      "high": 3500000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RZIN2A_l": {
+      "device": "RZIN2A",
+      "kind": "resistor",
+      "low": 900.0,
+      "high": 2200.0,
+      "log_scale": true
+    },
+    "CIN2A_m": {
+      "device": "CIN2A",
+      "kind": "capacitor",
+      "low": 3500000.0,
+      "high": 6000000.0,
+      "log_scale": true
+    },
+    "RZIN2B_l": {
+      "device": "RZIN2B",
+      "kind": "resistor",
+      "low": 600.0,
+      "high": 1600.0,
+      "log_scale": true
+    },
+    "RZIN2C_l": {
+      "device": "RZIN2C",
+      "kind": "resistor",
+      "low": 1000.0,
+      "high": 2600.0,
+      "log_scale": true
+    },
+    "CIN2C_m": {
+      "device": "CIN2C",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 8000000.0,
+      "log_scale": true
+    },
+    "RZIN2D_l": {
+      "device": "RZIN2D",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 4000.0,
+      "log_scale": true
+    },
+    "RHFQ4_l": {
+      "device": "RHFQ4",
+      "kind": "resistor",
+      "low": 6000.0,
+      "high": 25000.0,
+      "log_scale": true
+    },
+    "CHFQ4_m": {
+      "device": "CHFQ4",
+      "kind": "capacitor",
+      "low": 2.0,
+      "high": 25.0,
+      "log_scale": true
+    },
+    "CP1_m": {
+      "device": "CP1",
+      "kind": "capacitor",
+      "low": 1200.0,
+      "high": 2200.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CP2_m": {
+      "device": "CP2",
+      "kind": "capacitor",
+      "low": 1000.0,
+      "high": 2200.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CP3_m": {
+      "device": "CP3",
+      "kind": "capacitor",
+      "low": 8500.0,
+      "high": 12000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RZIN2A",
+      "kind": "resistor",
+      "param": "RZIN2A_l"
+    },
+    {
+      "name": "CIN2A",
+      "kind": "capacitor",
+      "param": "CIN2A_m"
+    },
+    {
+      "name": "RZIN2B",
+      "kind": "resistor",
+      "param": "RZIN2B_l"
+    },
+    {
+      "name": "RZIN2C",
+      "kind": "resistor",
+      "param": "RZIN2C_l"
+    },
+    {
+      "name": "CIN2C",
+      "kind": "capacitor",
+      "param": "CIN2C_m"
+    },
+    {
+      "name": "RZIN2D",
+      "kind": "resistor",
+      "param": "RZIN2D_l"
+    },
+    {
+      "name": "RHFQ4",
+      "kind": "resistor",
+      "param": "RHFQ4_l"
+    },
+    {
+      "name": "CHFQ4",
+      "kind": "capacitor",
+      "param": "CHFQ4_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CIN1",
+      "line": "CIN1 VIN B1 GND {CAP_MODEL} m={CIN1_m}"
+    },
+    {
+      "device": "CIN2",
+      "line": "CIN2 B1 B2 GND {CAP_MODEL} m={CIN2_m}"
+    },
+    {
+      "device": "CP1",
+      "line": "CP1 N1 GND GND {CAP_MODEL} m={CP1_m}"
+    },
+    {
+      "device": "CP2",
+      "line": "CP2 NDRV GND GND {CAP_MODEL} m={CP2_m}"
+    },
+    {
+      "device": "CP3",
+      "line": "CP3 VOUT GND GND {CAP_MODEL} m={CP3_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CIN2",
+      "lines": [
+        "RZIN2A B1 ZIN2A GND {RES_MODEL} l={RZIN2A_l} w=5.73u m=1",
+        "CIN2A ZIN2A ZIN2B GND {CAP_MODEL} m={CIN2A_m}",
+        "RZIN2B ZIN2B B2 GND {RES_MODEL} l={RZIN2B_l} w=5.73u m=1",
+        "RZIN2C B1 ZIN2C GND {RES_MODEL} l={RZIN2C_l} w=5.73u m=1",
+        "CIN2C ZIN2C ZIN2D GND {CAP_MODEL} m={CIN2C_m}",
+        "RZIN2D ZIN2D B2 GND {RES_MODEL} l={RZIN2D_l} w=5.73u m=1"
+      ]
+    },
+    {
+      "anchor": "RQ4FB",
+      "lines": [
+        "RHFQ4 VOUT NHFQ4 GND {RES_MODEL} l={RHFQ4_l} w=5.73u m=1",
+        "CHFQ4 NHFQ4 BQ4 GND {CAP_MODEL} m={CHFQ4_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 4 candidate.",
+    "RHFQ4 and CHFQ4 use the requested weak ranges rather than the broader T07 ranges.",
+    "CP1, CP2, and CP3 are constrained around trial_0146 values to avoid output pole collapse."
+  ]
+}

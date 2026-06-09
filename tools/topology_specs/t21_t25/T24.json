@@ -1,0 +1,158 @@
+{
+  "id": "T24",
+  "slug": "t24-lightweight-vout-bridged-t-notch",
+  "title": "Lightweight VOUT Bridged-T Notch",
+  "source_idea": 24,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t21-t25-targeted/runs",
+  "candidate_prefix": "q5-bp-t24",
+  "hypothesis": "Apply the T20 VOUT bridged RC notch idea with much lighter capacitors and output loading so the upper cutoff remains near 20 kHz while 200 kHz is locally attenuated.",
+  "risk": "The VOUT notch can still load the emitter follower and reduce output swing if RNT values are too low or the optional CMOUT path is too strong.",
+  "changed_blocks": [
+    "lightweight_vout_bridged_t_notch",
+    "weak_vout_ndrv_compensation",
+    "output_pole_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "RNT1_l": {
+      "device": "RNT1",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 30000.0,
+      "log_scale": true
+    },
+    "CNT1_m": {
+      "device": "CNT1",
+      "kind": "capacitor",
+      "low": 5.0,
+      "high": 80.0,
+      "log_scale": true
+    },
+    "CNT2_m": {
+      "device": "CNT2",
+      "kind": "capacitor",
+      "low": 5.0,
+      "high": 80.0,
+      "log_scale": true
+    },
+    "RNT2_l": {
+      "device": "RNT2",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 30000.0,
+      "log_scale": true
+    },
+    "RNTBR_l": {
+      "device": "RNTBR",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 30000.0,
+      "log_scale": true
+    },
+    "RZOUT_l": {
+      "device": "RZOUT",
+      "kind": "resistor",
+      "low": 8000.0,
+      "high": 30000.0,
+      "log_scale": true
+    },
+    "CMOUT_m": {
+      "device": "CMOUT",
+      "kind": "capacitor",
+      "low": 1.0,
+      "high": 15.0,
+      "log_scale": true
+    },
+    "CP3_m": {
+      "device": "CP3",
+      "kind": "capacitor",
+      "low": 8000.0,
+      "high": 12000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RBUF_l": {
+      "device": "RBUF",
+      "kind": "resistor",
+      "low": 6000.0,
+      "high": 9000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RNT1",
+      "kind": "resistor",
+      "param": "RNT1_l"
+    },
+    {
+      "name": "CNT1",
+      "kind": "capacitor",
+      "param": "CNT1_m"
+    },
+    {
+      "name": "CNT2",
+      "kind": "capacitor",
+      "param": "CNT2_m"
+    },
+    {
+      "name": "RNT2",
+      "kind": "resistor",
+      "param": "RNT2_l"
+    },
+    {
+      "name": "RNTBR",
+      "kind": "resistor",
+      "param": "RNTBR_l"
+    },
+    {
+      "name": "RZOUT",
+      "kind": "resistor",
+      "param": "RZOUT_l"
+    },
+    {
+      "name": "CMOUT",
+      "kind": "capacitor",
+      "param": "CMOUT_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "RBUF",
+      "line": "RBUF VOUT GND GND {RES_MODEL} l={RBUF_l} w=5.73u m=1"
+    },
+    {
+      "device": "CP3",
+      "line": "CP3 VOUT GND GND {CAP_MODEL} m={CP3_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "RBUF",
+      "lines": [
+        "RNT1 VOUT NNT1 GND {RES_MODEL} l={RNT1_l} w=5.73u m=1",
+        "CNT1 NNT1 GND GND {CAP_MODEL} m={CNT1_m}",
+        "CNT2 VOUT NNT2 GND {CAP_MODEL} m={CNT2_m}",
+        "RNT2 NNT2 GND GND {RES_MODEL} l={RNT2_l} w=5.73u m=1",
+        "RNTBR NNT1 NNT2 GND {RES_MODEL} l={RNTBR_l} w=5.73u m=1",
+        "RZOUT VOUT NZOUT GND {RES_MODEL} l={RZOUT_l} w=5.73u m=1",
+        "CMOUT NZOUT NDRV GND {CAP_MODEL} m={CMOUT_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 2 candidate.",
+    "This is the T20 bridged RC notch idea with CNT1/CNT2 capped at 80 and CMOUT capped at 15.",
+    "CP3 and RBUF remain near trial_0146 instead of using the heavy T20 loading ranges."
+  ]
+}

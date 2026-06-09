@@ -1,0 +1,145 @@
+{
+  "id": "T29",
+  "slug": "t29-input-low-corner-redistribution",
+  "title": "Input Low-Corner Redistribution",
+  "source_idea": 29,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t26-t30-targeted/runs",
+  "candidate_prefix": "q5-bp-t29",
+  "hypothesis": "Move part of the low-corner shaping from large emitter bypass caps into two B1-B2 input RC branches while holding CE1/CE2 at 5M-8M.",
+  "risk": "The extra B1-B2 input branches can load the input high-pass ladder and collapse the upper cutoff if branch capacitance is too large.",
+  "changed_blocks": [
+    "trial_0146_input_coupling_highpass",
+    "input_low_corner_redistribution",
+    "emitter_bypass_area_reduction",
+    "upper_cutoff_guardrail",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CE1_m": {
+      "device": "CE1",
+      "kind": "capacitor",
+      "low": 5000000.0,
+      "high": 8000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CE2_m": {
+      "device": "CE2",
+      "kind": "capacitor",
+      "low": 5000000.0,
+      "high": 8000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CIN1_m": {
+      "device": "CIN1",
+      "kind": "capacitor",
+      "low": 2000000.0,
+      "high": 4000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CIN2_m": {
+      "device": "CIN2",
+      "kind": "capacitor",
+      "low": 500000.0,
+      "high": 2500000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RINL1_l": {
+      "device": "RINL1",
+      "kind": "resistor",
+      "low": 1000.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CINL1_m": {
+      "device": "CINL1",
+      "kind": "capacitor",
+      "low": 3000000.0,
+      "high": 6000000.0,
+      "log_scale": false
+    },
+    "RINL2_l": {
+      "device": "RINL2",
+      "kind": "resistor",
+      "low": 1000.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CINL2_m": {
+      "device": "CINL2",
+      "kind": "capacitor",
+      "low": 3000000.0,
+      "high": 6000000.0,
+      "log_scale": false
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RINL1",
+      "kind": "resistor",
+      "param": "RINL1_l"
+    },
+    {
+      "name": "CINL1",
+      "kind": "capacitor",
+      "param": "CINL1_m"
+    },
+    {
+      "name": "RINL2",
+      "kind": "resistor",
+      "param": "RINL2_l"
+    },
+    {
+      "name": "CINL2",
+      "kind": "capacitor",
+      "param": "CINL2_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CE1",
+      "line": "CE1 E1B GND GND {CAP_MODEL} m={CE1_m}"
+    },
+    {
+      "device": "CE2",
+      "line": "CE2 E2B GND GND {CAP_MODEL} m={CE2_m}"
+    },
+    {
+      "device": "CIN1",
+      "line": "CIN1 VIN B1 GND {CAP_MODEL} m={CIN1_m}"
+    },
+    {
+      "device": "CIN2",
+      "line": "CIN2 B1 B2 GND {CAP_MODEL} m={CIN2_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CIN2",
+      "lines": [
+        "RINL1 B1 NINL1 GND {RES_MODEL} l={RINL1_l} w=5.73u m=1",
+        "CINL1 NINL1 B2 GND {CAP_MODEL} m={CINL1_m}",
+        "RINL2 B1 NINL2 GND {RES_MODEL} l={RINL2_l} w=5.73u m=1",
+        "CINL2 NINL2 B2 GND {CAP_MODEL} m={CINL2_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 3 candidate in the requested order.",
+    "CINL1/CINL2 use the requested 3M-6M range.",
+    "CIN1 and CIN2 are retuned to 2M-4M and 0.5M-2.5M respectively.",
+    "The objective still rejects upper 3 dB collapse below 20 kHz."
+  ]
+}

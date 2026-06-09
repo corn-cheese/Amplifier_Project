@@ -1,0 +1,126 @@
+{
+  "id": "T21",
+  "slug": "t21-baseline-weak-dual-damped-miller",
+  "title": "Baseline Weak Dual Damped Miller",
+  "source_idea": 21,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t21-t25-targeted/runs",
+  "candidate_prefix": "q5-bp-t21",
+  "hypothesis": "Preserve the trial_0146 input transient behavior while adding only weak T01-style series-damped NDRV-to-N1 and VOUT-to-NDRV Miller paths to reduce high-side AC error.",
+  "risk": "Even weak Miller paths can pull the upper 3 dB point below 20 kHz if CP3 and RBUF drift too heavy.",
+  "changed_blocks": [
+    "trial_0146_baseline",
+    "weak_series_damped_miller_ndrv_n1",
+    "weak_series_damped_miller_vout_ndrv",
+    "output_pole_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CM12_m": {
+      "device": "CM12",
+      "kind": "capacitor",
+      "low": 4.0,
+      "high": 15.0,
+      "log_scale": true
+    },
+    "RZ12_l": {
+      "device": "RZ12",
+      "kind": "resistor",
+      "low": 3000.0,
+      "high": 8000.0,
+      "log_scale": true
+    },
+    "CMOUT_m": {
+      "device": "CMOUT",
+      "kind": "capacitor",
+      "low": 5.0,
+      "high": 30.0,
+      "log_scale": true
+    },
+    "RZOUT_l": {
+      "device": "RZOUT",
+      "kind": "resistor",
+      "low": 8000.0,
+      "high": 30000.0,
+      "log_scale": true
+    },
+    "CP3_m": {
+      "device": "CP3",
+      "kind": "capacitor",
+      "low": 8000.0,
+      "high": 12000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RBUF_l": {
+      "device": "RBUF",
+      "kind": "resistor",
+      "low": 6000.0,
+      "high": 9000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RZ12",
+      "kind": "resistor",
+      "param": "RZ12_l"
+    },
+    {
+      "name": "CM12",
+      "kind": "capacitor",
+      "param": "CM12_m"
+    },
+    {
+      "name": "RZOUT",
+      "kind": "resistor",
+      "param": "RZOUT_l"
+    },
+    {
+      "name": "CMOUT",
+      "kind": "capacitor",
+      "param": "CMOUT_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "RBUF",
+      "line": "RBUF VOUT GND GND {RES_MODEL} l={RBUF_l} w=5.73u m=1"
+    },
+    {
+      "device": "CP3",
+      "line": "CP3 VOUT GND GND {CAP_MODEL} m={CP3_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CP2",
+      "lines": [
+        "RZ12 NDRV NZ12 GND {RES_MODEL} l={RZ12_l} w=5.73u m=1",
+        "CM12 NZ12 N1 GND {CAP_MODEL} m={CM12_m}"
+      ]
+    },
+    {
+      "anchor": "CP3",
+      "lines": [
+        "RZOUT VOUT NZOUT GND {RES_MODEL} l={RZOUT_l} w=5.73u m=1",
+        "CMOUT NZOUT NDRV GND {CAP_MODEL} m={CMOUT_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 1 candidate.",
+    "Trial_0146 CIN1/CIN2/RBIN1/RBIN2 and Q-device topology are preserved.",
+    "CM12/RZ12 and CMOUT/RZOUT are intentionally weak relative to the previous T01 collapse case.",
+    "CP3 and RBUF stay near the trial_0146 output pole values."
+  ]
+}

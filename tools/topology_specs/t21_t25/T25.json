@@ -1,0 +1,176 @@
+{
+  "id": "T25",
+  "slug": "t25-t01-pruned-two-branch-cin2-weak-miller",
+  "title": "T01 Pruned Two-Branch CIN2 Weak Miller",
+  "source_idea": 25,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t21-t25-targeted/runs",
+  "candidate_prefix": "q5-bp-t25",
+  "hypothesis": "Keep T01's low/high attenuation direction but prune it to two CIN2 boost branches plus one weak NDRV-to-N1 Miller path to reduce bandwidth and transient collapse.",
+  "risk": "The enlarged input coupling and branch capacitors can still pull the upper cutoff below target if the weak Miller path and CP3 align poorly.",
+  "changed_blocks": [
+    "two_branch_cin2_boost",
+    "single_weak_miller_ndrv_n1",
+    "input_coupling_retune",
+    "output_pole_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CIN1_m": {
+      "device": "CIN1",
+      "kind": "capacitor",
+      "low": 5000000.0,
+      "high": 6500000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CIN2_m": {
+      "device": "CIN2",
+      "kind": "capacitor",
+      "low": 1500000.0,
+      "high": 2500000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RZIN2A_l": {
+      "device": "RZIN2A",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 3500.0,
+      "log_scale": true
+    },
+    "CIN2A_m": {
+      "device": "CIN2A",
+      "kind": "capacitor",
+      "low": 1500000.0,
+      "high": 3500000.0,
+      "log_scale": true
+    },
+    "RZIN2B_l": {
+      "device": "RZIN2B",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 3500.0,
+      "log_scale": true
+    },
+    "CIN2B_m": {
+      "device": "CIN2B",
+      "kind": "capacitor",
+      "low": 1500000.0,
+      "high": 3500000.0,
+      "log_scale": true
+    },
+    "RZ12_l": {
+      "device": "RZ12",
+      "kind": "resistor",
+      "low": 3000.0,
+      "high": 8000.0,
+      "log_scale": true
+    },
+    "CM12_m": {
+      "device": "CM12",
+      "kind": "capacitor",
+      "low": 1.0,
+      "high": 20.0,
+      "log_scale": true
+    },
+    "CP3_m": {
+      "device": "CP3",
+      "kind": "capacitor",
+      "low": 6500.0,
+      "high": 10000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RBUF_l": {
+      "device": "RBUF",
+      "kind": "resistor",
+      "low": 5000.0,
+      "high": 8000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RZIN2A",
+      "kind": "resistor",
+      "param": "RZIN2A_l"
+    },
+    {
+      "name": "CIN2A",
+      "kind": "capacitor",
+      "param": "CIN2A_m"
+    },
+    {
+      "name": "RZIN2B",
+      "kind": "resistor",
+      "param": "RZIN2B_l"
+    },
+    {
+      "name": "CIN2B",
+      "kind": "capacitor",
+      "param": "CIN2B_m"
+    },
+    {
+      "name": "RZ12",
+      "kind": "resistor",
+      "param": "RZ12_l"
+    },
+    {
+      "name": "CM12",
+      "kind": "capacitor",
+      "param": "CM12_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CIN1",
+      "line": "CIN1 VIN B1 GND {CAP_MODEL} m={CIN1_m}"
+    },
+    {
+      "device": "CIN2",
+      "line": "CIN2 B1 B2 GND {CAP_MODEL} m={CIN2_m}"
+    },
+    {
+      "device": "RBUF",
+      "line": "RBUF VOUT GND GND {RES_MODEL} l={RBUF_l} w=5.73u m=1"
+    },
+    {
+      "device": "CP3",
+      "line": "CP3 VOUT GND GND {CAP_MODEL} m={CP3_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CIN2",
+      "lines": [
+        "RZIN2A B1 ZIN2A GND {RES_MODEL} l={RZIN2A_l} w=5.73u m=1",
+        "CIN2A ZIN2A B2 GND {CAP_MODEL} m={CIN2A_m}",
+        "RZIN2B B1 ZIN2B GND {RES_MODEL} l={RZIN2B_l} w=5.73u m=1",
+        "CIN2B ZIN2B B2 GND {CAP_MODEL} m={CIN2B_m}"
+      ]
+    },
+    {
+      "anchor": "CP2",
+      "lines": [
+        "RZ12 NDRV NZ12 GND {RES_MODEL} l={RZ12_l} w=5.73u m=1",
+        "CM12 NZ12 N1 GND {CAP_MODEL} m={CM12_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 5 candidate.",
+    "The former T01 three-branch CIN2 idea is pruned to two branch capacitors only.",
+    "Only one weak Miller branch is kept; no VOUT-to-NDRV Miller branch is added.",
+    "CP3 is capped at 10000 and RBUF is constrained to 5000-8000."
+  ]
+}

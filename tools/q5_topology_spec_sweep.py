@@ -427,6 +427,8 @@ def _build_devices(baseline_devices: str, spec: dict[str, Any], params: dict[str
             rows.append(_capacitor_row(fieldnames, name, float(raw_value)))
         elif kind == "diode":
             rows.append(_diode_row(fieldnames, name, float(raw_value)))
+        elif kind in {"npn", "pnp"}:
+            rows.append(_bjt_row(fieldnames, device))
         else:
             raise ValueError(f"support device {name} has unsupported kind: {kind}")
 
@@ -767,6 +769,36 @@ def _diode_row(fieldnames: list[str], name: str, multiplier: float) -> dict[str,
             "length": "1.00u",
             "multiplier": _format_multiplier(multiplier),
             "include_in_ppa": "true",
+        }
+    )
+    return row
+
+
+def _bjt_row(fieldnames: list[str], device: dict[str, Any]) -> dict[str, str]:
+    kind = str(device["kind"])
+    width = str(device.get("width", "1.00u"))
+    length = str(device.get("length", "1.00u"))
+    multiplier = str(device.get("multiplier", "1"))
+    area = _finite_float(device.get("area_p"))
+    if area is None:
+        try:
+            width_um = float(width.removesuffix("u"))
+            length_um = float(length.removesuffix("u"))
+            area = width_um * length_um
+        except ValueError:
+            area = 1.0
+    row = {field: "" for field in fieldnames}
+    row.update(
+        {
+            "name": str(device["name"]),
+            "type": kind,
+            "count": str(device.get("count", "1")),
+            "width": width,
+            "length": length,
+            "multiplier": multiplier,
+            "ft_hz": str(device.get("ft_hz", "10meg")),
+            "area_p": f"{area:.4f}",
+            "include_in_ppa": str(device.get("include_in_ppa", "true")).lower(),
         }
     )
     return row

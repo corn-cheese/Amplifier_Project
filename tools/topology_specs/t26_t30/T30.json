@@ -1,0 +1,133 @@
+{
+  "id": "T30",
+  "slug": "t30-q4-bq4-frequency-selective-feedback",
+  "title": "Q4/BQ4 Frequency-Selective Feedback",
+  "source_idea": 30,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t26-t30-targeted/runs",
+  "candidate_prefix": "q5-bp-t30",
+  "hypothesis": "Limit CE1/CE2 to 8M-12M and add weak frequency-selective VOUT-BQ4 lead-lag feedback paths to recover low-corner behavior without heavily touching the signal path.",
+  "risk": "Too much Q4/BQ4 feedback can move BQ4 bias, reduce output swing, or pull the upper cutoff below target.",
+  "changed_blocks": [
+    "trial_0146_baseline",
+    "q4_bq4_frequency_selective_feedback",
+    "emitter_bypass_area_reduction",
+    "weak_feedback_start",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CE1_m": {
+      "device": "CE1",
+      "kind": "capacitor",
+      "low": 8000000.0,
+      "high": 12000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CE2_m": {
+      "device": "CE2",
+      "kind": "capacitor",
+      "low": 8000000.0,
+      "high": 12000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RQ4FB_l": {
+      "device": "RQ4FB",
+      "kind": "resistor",
+      "low": 12000.0,
+      "high": 50000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RHFQ4_l": {
+      "device": "RHFQ4",
+      "kind": "resistor",
+      "low": 20000.0,
+      "high": 120000.0,
+      "log_scale": true
+    },
+    "CHFQ4_m": {
+      "device": "CHFQ4",
+      "kind": "capacitor",
+      "low": 2.0,
+      "high": 100.0,
+      "log_scale": true
+    },
+    "RLQ4_l": {
+      "device": "RLQ4",
+      "kind": "resistor",
+      "low": 20000.0,
+      "high": 180000.0,
+      "log_scale": true
+    },
+    "CLQ4_m": {
+      "device": "CLQ4",
+      "kind": "capacitor",
+      "low": 2.0,
+      "high": 100.0,
+      "log_scale": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RHFQ4",
+      "kind": "resistor",
+      "param": "RHFQ4_l"
+    },
+    {
+      "name": "CHFQ4",
+      "kind": "capacitor",
+      "param": "CHFQ4_m"
+    },
+    {
+      "name": "RLQ4",
+      "kind": "resistor",
+      "param": "RLQ4_l"
+    },
+    {
+      "name": "CLQ4",
+      "kind": "capacitor",
+      "param": "CLQ4_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CE1",
+      "line": "CE1 E1B GND GND {CAP_MODEL} m={CE1_m}"
+    },
+    {
+      "device": "CE2",
+      "line": "CE2 E2B GND GND {CAP_MODEL} m={CE2_m}"
+    },
+    {
+      "device": "RQ4FB",
+      "line": "RQ4FB VOUT BQ4 GND {RES_MODEL} l={RQ4FB_l} w=5.73u m=1"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "RQ4FB",
+      "lines": [
+        "RHFQ4 VOUT NHFQ4 GND {RES_MODEL} l={RHFQ4_l} w=5.73u m=1",
+        "CHFQ4 NHFQ4 BQ4 GND {CAP_MODEL} m={CHFQ4_m}",
+        "RLQ4 BQ4 NLQ4 GND {RES_MODEL} l={RLQ4_l} w=5.73u m=1",
+        "CLQ4 NLQ4 VREF GND {CAP_MODEL} m={CLQ4_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 2 candidate in the requested order.",
+    "Starts from weak feedback by keeping RQ4FB at 12k-50k and branch resistors at high values.",
+    "CHFQ4 and CLQ4 use the requested 2-100 multiplier range.",
+    "Q4 bias collapse is monitored through normal review and verifier rejection."
+  ]
+}

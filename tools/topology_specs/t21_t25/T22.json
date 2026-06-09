@@ -1,0 +1,169 @@
+{
+  "id": "T22",
+  "slug": "t22-t05-dual-end-low-corner-retune",
+  "title": "T05 Dual-End Low-Corner Retune",
+  "source_idea": 22,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t21-t25-targeted/runs",
+  "candidate_prefix": "q5-bp-t22",
+  "hypothesis": "Start from the T05 dual-end isolated plus slow third CIN2 boost shape and retune RBIN2/RBIN1/CIN1 to pull the lower 3 dB corner toward 10-20 Hz without sacrificing transient error.",
+  "risk": "Large input capacitance and multiple B1-B2 boost paths can over-capacitize Q1 input and pull the upper 3 dB point below 20 kHz.",
+  "changed_blocks": [
+    "t05_dual_end_isolated_slow_third_boost",
+    "rbin2_low_corner_retune",
+    "input_coupling_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CIN1_m": {
+      "device": "CIN1",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 8000000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "CIN2_m": {
+      "device": "CIN2",
+      "kind": "capacitor",
+      "low": 1500000.0,
+      "high": 4000000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RBIN1_l": {
+      "device": "RBIN1",
+      "kind": "resistor",
+      "low": 3000.0,
+      "high": 8000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RBIN2_l": {
+      "device": "RBIN2",
+      "kind": "resistor",
+      "low": 1000.0,
+      "high": 6000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RZIN2A_l": {
+      "device": "RZIN2A",
+      "kind": "resistor",
+      "low": 900.0,
+      "high": 2200.0,
+      "log_scale": true
+    },
+    "CIN2A_m": {
+      "device": "CIN2A",
+      "kind": "capacitor",
+      "low": 3500000.0,
+      "high": 6000000.0,
+      "log_scale": true
+    },
+    "RZIN2B_l": {
+      "device": "RZIN2B",
+      "kind": "resistor",
+      "low": 600.0,
+      "high": 1600.0,
+      "log_scale": true
+    },
+    "RZIN2C_l": {
+      "device": "RZIN2C",
+      "kind": "resistor",
+      "low": 1000.0,
+      "high": 2600.0,
+      "log_scale": true
+    },
+    "CIN2C_m": {
+      "device": "CIN2C",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 8000000.0,
+      "log_scale": true
+    },
+    "RZIN2D_l": {
+      "device": "RZIN2D",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 4000.0,
+      "log_scale": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RZIN2A",
+      "kind": "resistor",
+      "param": "RZIN2A_l"
+    },
+    {
+      "name": "CIN2A",
+      "kind": "capacitor",
+      "param": "CIN2A_m"
+    },
+    {
+      "name": "RZIN2B",
+      "kind": "resistor",
+      "param": "RZIN2B_l"
+    },
+    {
+      "name": "RZIN2C",
+      "kind": "resistor",
+      "param": "RZIN2C_l"
+    },
+    {
+      "name": "CIN2C",
+      "kind": "capacitor",
+      "param": "CIN2C_m"
+    },
+    {
+      "name": "RZIN2D",
+      "kind": "resistor",
+      "param": "RZIN2D_l"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CIN1",
+      "line": "CIN1 VIN B1 GND {CAP_MODEL} m={CIN1_m}"
+    },
+    {
+      "device": "RBIN1",
+      "line": "RBIN1 B1 VREF GND {RES_MODEL} l={RBIN1_l} w=5.73u m=1"
+    },
+    {
+      "device": "CIN2",
+      "line": "CIN2 B1 B2 GND {CAP_MODEL} m={CIN2_m}"
+    },
+    {
+      "device": "RBIN2",
+      "line": "RBIN2 B2 VREF GND {RES_MODEL} l={RBIN2_l} w=5.73u m=1"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CIN2",
+      "lines": [
+        "RZIN2A B1 ZIN2A GND {RES_MODEL} l={RZIN2A_l} w=5.73u m=1",
+        "CIN2A ZIN2A ZIN2B GND {CAP_MODEL} m={CIN2A_m}",
+        "RZIN2B ZIN2B B2 GND {RES_MODEL} l={RZIN2B_l} w=5.73u m=1",
+        "RZIN2C B1 ZIN2C GND {RES_MODEL} l={RZIN2C_l} w=5.73u m=1",
+        "CIN2C ZIN2C ZIN2D GND {CAP_MODEL} m={CIN2C_m}",
+        "RZIN2D ZIN2D B2 GND {RES_MODEL} l={RZIN2D_l} w=5.73u m=1"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 3 candidate.",
+    "T05 trial_0013 used RZIN2A approximately 1374, CIN2A approximately 4.9e6, RZIN2B approximately 942, RZIN2C approximately 1554, CIN2C approximately 5.9e6, and RZIN2D approximately 3042.",
+    "RBIN2_l, RBIN1_l, and CIN1_m follow the requested low-corner retune ranges."
+  ]
+}

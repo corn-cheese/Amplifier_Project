@@ -1,0 +1,174 @@
+{
+  "id": "T26",
+  "slug": "t26-dual-local-miller-assisted-emitter-bypass",
+  "title": "Dual Local Miller-Assisted Emitter Bypass",
+  "source_idea": 26,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t26-t30-targeted/runs",
+  "candidate_prefix": "q5-bp-t26",
+  "hypothesis": "Reduce the physical CE1/CE2 emitter bypass area to 4M-9M while adding local damped collector-emitter Miller-assisted bypass paths around Q1/Q2.",
+  "risk": "The added Miller-assisted paths can overcompensate N1 or NDRV and collapse upper bandwidth if RME damping is too small.",
+  "changed_blocks": [
+    "trial_0146_baseline",
+    "emitter_bypass_area_reduction",
+    "local_miller_assisted_emitter_bypass",
+    "narrow_rc_cp_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "CE1_m": {
+      "device": "CE1",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 9000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CE2_m": {
+      "device": "CE2",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 9000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RME1_l": {
+      "device": "RME1",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CME1_m": {
+      "device": "CME1",
+      "kind": "capacitor",
+      "low": 200000.0,
+      "high": 1500000.0,
+      "log_scale": true
+    },
+    "RME2_l": {
+      "device": "RME2",
+      "kind": "resistor",
+      "low": 800.0,
+      "high": 12000.0,
+      "log_scale": true
+    },
+    "CME2_m": {
+      "device": "CME2",
+      "kind": "capacitor",
+      "low": 200000.0,
+      "high": 1500000.0,
+      "log_scale": true
+    },
+    "RC1_l": {
+      "device": "RC1",
+      "kind": "resistor",
+      "low": 500.0,
+      "high": 900.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RC2_l": {
+      "device": "RC2",
+      "kind": "resistor",
+      "low": 350.0,
+      "high": 700.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CP1_m": {
+      "device": "CP1",
+      "kind": "capacitor",
+      "low": 900.0,
+      "high": 2400.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "CP2_m": {
+      "device": "CP2",
+      "kind": "capacitor",
+      "low": 900.0,
+      "high": 2400.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RME1",
+      "kind": "resistor",
+      "param": "RME1_l"
+    },
+    {
+      "name": "CME1",
+      "kind": "capacitor",
+      "param": "CME1_m"
+    },
+    {
+      "name": "RME2",
+      "kind": "resistor",
+      "param": "RME2_l"
+    },
+    {
+      "name": "CME2",
+      "kind": "capacitor",
+      "param": "CME2_m"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "CE1",
+      "line": "CE1 E1B GND GND {CAP_MODEL} m={CE1_m}"
+    },
+    {
+      "device": "CE2",
+      "line": "CE2 E2B GND GND {CAP_MODEL} m={CE2_m}"
+    },
+    {
+      "device": "RC1",
+      "line": "RC1 VDD N1 GND {RES_MODEL} l={RC1_l} w=5.73u m=1"
+    },
+    {
+      "device": "RC2",
+      "line": "RC2 VDD NDRV GND {RES_MODEL} l={RC2_l} w=5.73u m=1"
+    },
+    {
+      "device": "CP1",
+      "line": "CP1 N1 GND GND {CAP_MODEL} m={CP1_m}"
+    },
+    {
+      "device": "CP2",
+      "line": "CP2 NDRV GND GND {CAP_MODEL} m={CP2_m}"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "CE1",
+      "lines": [
+        "RME1 E1B NME1 GND {RES_MODEL} l={RME1_l} w=5.73u m=1",
+        "CME1 NME1 N1 GND {CAP_MODEL} m={CME1_m}"
+      ]
+    },
+    {
+      "anchor": "CE2",
+      "lines": [
+        "RME2 E2B NME2 GND {RES_MODEL} l={RME2_l} w=5.73u m=1",
+        "CME2 NME2 NDRV GND {CAP_MODEL} m={CME2_m}"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 1 candidate in the requested order.",
+    "CE1/CE2 are forced into the 4M-9M range.",
+    "RME1/RME2 damping is the primary stability knob.",
+    "RC1, RC2, CP1, and CP2 are kept in narrow trial_0146-centered ranges."
+  ]
+}

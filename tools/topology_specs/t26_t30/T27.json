@@ -1,0 +1,198 @@
+{
+  "id": "T27",
+  "slug": "t27-bridged-t-emitter-degeneration-bypass",
+  "title": "Bridged-T Emitter Degeneration Bypass",
+  "source_idea": 27,
+  "variant": "A",
+  "baseline_workspace": "Best/q5-bp-dual-input-hp-output-sink-trial-0146-workflow/best_run/trial_0146/workspace",
+  "sweep_output_root": "automation_artifacts/sweeps/q5-bandpass-t26-t30-targeted/runs",
+  "candidate_prefix": "q5-bp-t27",
+  "hypothesis": "Preserve DC emitter degeneration while moving CE1/CE2 onto bridged-T AC nodes so smaller physical bypass caps see a larger effective AC resistance.",
+  "risk": "The bridged-T emitter network can reduce midband gain or disturb Q1/Q2 bias if the bridge and ground legs are not balanced.",
+  "changed_blocks": [
+    "trial_0146_baseline",
+    "bridged_t_emitter_degeneration",
+    "emitter_bypass_area_reduction",
+    "collector_feedback_buffer_retune",
+    "device_accounting"
+  ],
+  "target": {
+    "performance_nrmse_combined": "<=0.04",
+    "low_cut_hz": 10.0,
+    "high_cut_hz": 20000.0,
+    "high_probe_hz": 200000.0
+  },
+  "swept_params": {
+    "RE1BT_l": {
+      "device": "RE1B",
+      "kind": "resistor",
+      "low": 400.0,
+      "high": 1400.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RE1G_l": {
+      "device": "RE1G",
+      "kind": "resistor",
+      "low": 300.0,
+      "high": 4000.0,
+      "log_scale": true
+    },
+    "RE1BR_l": {
+      "device": "RE1BR",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 40000.0,
+      "log_scale": true
+    },
+    "CE1_m": {
+      "device": "CE1",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 8000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RE2BT_l": {
+      "device": "RE2B",
+      "kind": "resistor",
+      "low": 300.0,
+      "high": 1200.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RE2G_l": {
+      "device": "RE2G",
+      "kind": "resistor",
+      "low": 300.0,
+      "high": 4000.0,
+      "log_scale": true
+    },
+    "RE2BR_l": {
+      "device": "RE2BR",
+      "kind": "resistor",
+      "low": 2000.0,
+      "high": 40000.0,
+      "log_scale": true
+    },
+    "CE2_m": {
+      "device": "CE2",
+      "kind": "capacitor",
+      "low": 4000000.0,
+      "high": 8000000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RC1_l": {
+      "device": "RC1",
+      "kind": "resistor",
+      "low": 500.0,
+      "high": 1000.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RC2_l": {
+      "device": "RC2",
+      "kind": "resistor",
+      "low": 350.0,
+      "high": 850.0,
+      "log_scale": false,
+      "existing": true
+    },
+    "RQ4FB_l": {
+      "device": "RQ4FB",
+      "kind": "resistor",
+      "low": 8000.0,
+      "high": 30000.0,
+      "log_scale": true,
+      "existing": true
+    },
+    "RBUF_l": {
+      "device": "RBUF",
+      "kind": "resistor",
+      "low": 5000.0,
+      "high": 9000.0,
+      "log_scale": false,
+      "existing": true
+    }
+  },
+  "support_devices": [
+    {
+      "name": "RE1G",
+      "kind": "resistor",
+      "param": "RE1G_l"
+    },
+    {
+      "name": "RE1BR",
+      "kind": "resistor",
+      "param": "RE1BR_l"
+    },
+    {
+      "name": "RE2G",
+      "kind": "resistor",
+      "param": "RE2G_l"
+    },
+    {
+      "name": "RE2BR",
+      "kind": "resistor",
+      "param": "RE2BR_l"
+    }
+  ],
+  "remove_devices": [],
+  "line_replacements": [
+    {
+      "device": "RE1B",
+      "line": "RE1B E1B NE1T GND {RES_MODEL} l={RE1BT_l} w=5.73u m=1"
+    },
+    {
+      "device": "CE1",
+      "line": "CE1 NE1T GND GND {CAP_MODEL} m={CE1_m}"
+    },
+    {
+      "device": "RE2B",
+      "line": "RE2B E2B NE2T GND {RES_MODEL} l={RE2BT_l} w=5.73u m=1"
+    },
+    {
+      "device": "CE2",
+      "line": "CE2 NE2T GND GND {CAP_MODEL} m={CE2_m}"
+    },
+    {
+      "device": "RC1",
+      "line": "RC1 VDD N1 GND {RES_MODEL} l={RC1_l} w=5.73u m=1"
+    },
+    {
+      "device": "RC2",
+      "line": "RC2 VDD NDRV GND {RES_MODEL} l={RC2_l} w=5.73u m=1"
+    },
+    {
+      "device": "RQ4FB",
+      "line": "RQ4FB VOUT BQ4 GND {RES_MODEL} l={RQ4FB_l} w=5.73u m=1"
+    },
+    {
+      "device": "RBUF",
+      "line": "RBUF VOUT GND GND {RES_MODEL} l={RBUF_l} w=5.73u m=1"
+    }
+  ],
+  "insertions": [
+    {
+      "anchor": "RE1B",
+      "lines": [
+        "RE1G NE1T GND GND {RES_MODEL} l={RE1G_l} w=5.73u m=1",
+        "RE1BR E1B GND GND {RES_MODEL} l={RE1BR_l} w=5.73u m=1"
+      ]
+    },
+    {
+      "anchor": "RE2B",
+      "lines": [
+        "RE2G NE2T GND GND {RES_MODEL} l={RE2G_l} w=5.73u m=1",
+        "RE2BR E2B GND GND {RES_MODEL} l={RE2BR_l} w=5.73u m=1"
+      ]
+    }
+  ],
+  "notes": [
+    "Priority 4 candidate in the requested order.",
+    "CE1/CE2 are capped at 8M.",
+    "RC1, RC2, RQ4FB, and RBUF are included because bridged-T degeneration has midband gain collapse risk.",
+    "RE1BR/RE2BR preserve a direct DC return while CE1/CE2 see NE1T/NE2T AC nodes."
+  ]
+}
